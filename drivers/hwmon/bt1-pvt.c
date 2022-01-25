@@ -925,29 +925,39 @@ static struct pvt_hwmon *pvt_create_data(struct platform_device *pdev)
 
 static int pvt_request_regs(struct pvt_hwmon *pvt)
 {
+	int err = 0;
+#ifdef BT1_PVT_DIRECT_REG_ACCESS
 	struct platform_device *pdev = to_platform_device(pvt->dev);
-
 	pvt->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(pvt->regs))
 		return PTR_ERR(pvt->regs);
+#else
+	err = of_property_read_u32(pvt->dev->of_node, "pvt_id", &(pvt->pvt_id));
+	if (err) {
+		dev_err(pvt->dev, "couldn't find pvt_id\n");
+	}
+#endif
 
-	return 0;
+	return err;
 }
 
+#ifdef BT1_PVT_DIRECT_REG_ACCESS
 static void pvt_disable_clks(void *data)
 {
 	struct pvt_hwmon *pvt = data;
 
 	clk_bulk_disable_unprepare(PVT_CLOCK_NUM, pvt->clks);
 }
+#endif
 
 static int pvt_request_clks(struct pvt_hwmon *pvt)
 {
-	int ret;
+	int ret = 0;
 
 	pvt->clks[PVT_CLOCK_APB].id = "pclk";
 	pvt->clks[PVT_CLOCK_REF].id = "ref";
 
+#ifdef BT1_PVT_DIRECT_REG_ACCESS
 	ret = devm_clk_bulk_get(pvt->dev, PVT_CLOCK_NUM, pvt->clks);
 	if (ret) {
 		dev_err(pvt->dev, "Couldn't get PVT clocks descriptors\n");
@@ -965,8 +975,11 @@ static int pvt_request_clks(struct pvt_hwmon *pvt)
 		dev_err(pvt->dev, "Can't add PVT clocks disable action\n");
 		return ret;
 	}
-
-	return 0;
+#else
+	pvt->clks[PVT_CLOCK_APB].clk = NULL;
+	pvt->clks[PVT_CLOCK_REF].clk = NULL;
+#endif
+	return ret;
 }
 
 static int pvt_check_pwr(struct pvt_hwmon *pvt)
@@ -1006,14 +1019,17 @@ static int pvt_check_pwr(struct pvt_hwmon *pvt)
 
 static int pvt_init_iface(struct pvt_hwmon *pvt)
 {
-	unsigned long rate;
 	u32 trim, temp;
+
+#ifdef BT1_PVT_DIRECT_REG_ACCESS
+	unsigned long rate;
 
 	rate = clk_get_rate(pvt->clks[PVT_CLOCK_REF].clk);
 	if (!rate) {
 		dev_err(pvt->dev, "Invalid reference clock rate\n");
 		return -ENODEV;
 	}
+#endif
 
 	/*
 	 * Make sure all interrupts and controller are disabled so not to
@@ -1042,6 +1058,7 @@ static int pvt_init_iface(struct pvt_hwmon *pvt)
 	 * polled. In that case the formulae will look a bit different:
 	 *   Ttotal = 5 * (N / Fclk + Tmin)
 	 */
+#if defined(BT1_PVT_DIRECT_REG_ACCESS)
 #if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
 	pvt->timeout = ktime_set(PVT_SENSORS_NUM * PVT_TOUT_DEF, 0);
 	pvt->timeout = ktime_divns(pvt->timeout, rate);
@@ -1050,6 +1067,9 @@ static int pvt_init_iface(struct pvt_hwmon *pvt)
 	pvt->timeout = ktime_set(PVT_TOUT_DEF, 0);
 	pvt->timeout = ktime_divns(pvt->timeout, rate);
 	pvt->timeout = ktime_add_ns(pvt->timeout, PVT_TOUT_MIN);
+#endif
+#else
+	pvt->timeout = ktime_set(0, PVT_TOUT_MIN * PVT_SENSORS_NUM);
 #endif
 
 	trim = PVT_TRIM_DEF;
