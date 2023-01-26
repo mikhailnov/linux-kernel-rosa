@@ -99,6 +99,7 @@ static const int six_hundred_forty_kb = 640 * 1024;
 extern int sysctl_userns_restrict;
 #endif
 extern int sysctl_idmap_mounts;
+extern int sysctl_io_uring_paranoid;
 
 
 
@@ -1893,6 +1894,15 @@ static struct ctl_table kern_table[] = {
 		.extra2		= SYSCTL_ONE,
 	},
 #endif
+	{
+		.procname       = "io_uring_paranoid",
+		.data           = &sysctl_io_uring_paranoid,
+		.maxlen         = sizeof(int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
+	},
 	{
 		.procname	= "ngroups_max",
 		.data		= (void *)&ngroups_max,
