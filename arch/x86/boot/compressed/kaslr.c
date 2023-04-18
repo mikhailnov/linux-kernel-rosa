@@ -287,7 +287,7 @@ static void handle_mem_options(void)
 		} else if (!strcmp(param, "mem")) {
 			char *p = val;
 
-			if (!strcmp(p, "nopentium"))
+			if (!p || !strcmp(p, "nopentium"))
 				continue;
 			mem_size = memparse(p, &p);
 			if (mem_size == 0)
