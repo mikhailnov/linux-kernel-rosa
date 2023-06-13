@@ -1,0 +1,10 @@
+ALT LINUX ADDITION TO MAINTAINERS FILE
+--------------------------------------
+
+GENERIC (un-def, std-def, rt) ALT LINUX KERNEL TREE
+M:	Vitaly Chikunov <vt@altlinux.org>
+L:	devel-kernel@lists.altlinux.org (subscribers-only)
+S:	Supported
+B:	https://bugzilla.altlinux.org/enter_bug.cgi
+W:	https://www.altlinux.org/Kernel
+T:	git http://git.altlinux.org/people/kernelbot/packages/kernel-image.git
