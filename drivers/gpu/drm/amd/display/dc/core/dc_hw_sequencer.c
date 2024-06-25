@@ -512,6 +512,7 @@ void hwss_build_fast_sequence(struct dc *dc,
 	while (current_pipe) {
 		current_mpc_pipe = current_pipe;
 		while (current_mpc_pipe) {
+			if (current_mpc_pipe->plane_state) {
 			if (dc->hwss.set_flip_control_gsl && current_mpc_pipe->plane_state && current_mpc_pipe->plane_state->update_flags.raw) {
 				block_sequence[*num_steps].params.set_flip_control_gsl_params.pipe_ctx = current_mpc_pipe;
 				block_sequence[*num_steps].params.set_flip_control_gsl_params.flip_immediate = current_mpc_pipe->plane_state->flip_immediate;
@@ -561,6 +562,7 @@ void hwss_build_fast_sequence(struct dc *dc,
 				block_sequence[*num_steps].params.set_output_transfer_func_params.stream = current_mpc_pipe->stream;
 				block_sequence[*num_steps].func = DPP_SET_OUTPUT_TRANSFER_FUNC;
 				(*num_steps)++;
+			}
 			}
 
 			if (current_mpc_pipe->stream->update_flags.bits.out_csc) {
