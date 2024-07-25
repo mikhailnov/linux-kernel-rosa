@@ -866,7 +866,7 @@ static u32 dw_pcie_readl_dma(struct dw_pcie *pci, u32 reg)
 	return val;
 }
 
-static int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
+int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	char name[6];
@@ -883,6 +883,7 @@ static int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
 
 	return platform_get_irq_byname_optional(pdev, name);
 }
+EXPORT_SYMBOL_GPL(dw_pcie_edma_irq_vector);
 
 static struct dw_edma_plat_ops dw_pcie_edma_ops = {
 	.irq_vector = dw_pcie_edma_irq_vector,
