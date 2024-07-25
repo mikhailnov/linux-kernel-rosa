@@ -61,6 +61,38 @@ config PCIE_ARTPEC6_EP
 	  Enables support for the PCIe controller in the ARTPEC-6 SoC to work in
 	  endpoint mode. This uses the DesignWare core.
 
+config PCIE_BAIKAL
+	bool
+
+config PCIE_BAIKAL_HOST
+	bool "Baikal SoCs PCIe controller - Host Mode"
+	depends on ARCH_BAIKAL || COMPILE_TEST
+	depends on OF || (ACPI && PCI_QUIRKS)
+	depends on PCI_MSI
+	select PCIE_DW_HOST
+	select PCIE_BAIKAL
+	help
+	  Enables support for the PCIe controller in Baikal SoCs to work in
+	  host mode. There are two instances of PCIe controller in Baikal SoCs.
+	  This controller can work either as EP or RC. In order to enable
+	  host-specific features PCIE_BAIKAL_HOST must be selected and in order
+	  to enable device-specific features PCIE_BAIKAL_EP must be selected.
+	  This uses the DesignWare core.
+
+config PCIE_BAIKAL_EP
+	bool "Baikal SoCs PCIe controller - Endpoint Mode"
+	depends on ARCH_BAIKAL || COMPILE_TEST
+	depends on PCI_ENDPOINT
+	select PCIE_DW_EP
+	select PCIE_BAIKAL
+	help
+	  Enables support for the PCIe controller in Baikal SoCs to work in
+	  host mode. There are two instances of PCIe controller in Baikal SoCs.
+	  This controller can work either as EP or RC. In order to enable
+	  host-specific features PCIE_BAIKAL_HOST must be selected and in order
+	  to enable device-specific features PCIE_BAIKAL_EP must be selected.
+	  This uses the DesignWare core.
+
 config PCIE_BT1
 	tristate "Baikal-T1 PCIe controller"
 	depends on MIPS_BAIKAL_T1 || COMPILE_TEST

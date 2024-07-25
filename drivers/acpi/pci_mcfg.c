@@ -171,6 +171,44 @@ static struct mcfg_fixup mcfg_quirks[] = {
 	ALTRA_ECAM_QUIRK(1, 13),
 	ALTRA_ECAM_QUIRK(1, 14),
 	ALTRA_ECAM_QUIRK(1, 15),
+
+#define BAIKAL_ECAM(table_id, rev, seg, ops) \
+	{ "BAIKAL", table_id, rev, seg, MCFG_BUS_ANY, ops }
+
+	/* Baikal-M Synopsys DesignWare PCIe */
+	BAIKAL_ECAM("BKLEMCFG", 1, 0, &baikal_m_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 1, 1, &baikal_m_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 1, 2, &baikal_m_pcie_ecam_ops),
+
+	/* Baikal-S Synopsys DesignWare PCIe */
+	BAIKAL_ECAM("BKLEMCFG", 2, 0, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 1, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 2, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 3, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 4, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 5, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 6, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 7, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 8, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 9, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 10, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 11, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 12, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 13, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 14, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 15, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 16, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 17, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 18, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 19, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 20, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 21, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 22, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 23, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 24, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 25, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 26, &baikal_s_pcie_ecam_ops),
+	BAIKAL_ECAM("BKLEMCFG", 2, 27, &baikal_s_pcie_ecam_ops),
 #endif /* ARM64 */
 
 #ifdef CONFIG_LOONGARCH
