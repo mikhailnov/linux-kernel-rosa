@@ -119,6 +119,7 @@ struct dw_i2s_dev {
 			bool *period_elapsed);
 	unsigned int tx_ptr;
 	unsigned int rx_ptr;
+	unsigned int rx_overrun_count;
 };
 
 #if IS_ENABLED(CONFIG_SND_BAIKAL_PIO_PCM)

@@ -98,6 +98,7 @@ static inline void i2s_enable_irqs(struct dw_i2s_dev *dev, u32 stream,
 
 static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 {
+	unsigned int rxor_count;
 	struct dw_i2s_dev *dev = dev_id;
 	bool irq_valid = false;
 	u32 isr[4];
@@ -130,13 +131,17 @@ static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 
 		/* Error Handling: TX */
 		if (isr[i] & ISR_TXFO) {
-			dev_err(dev->dev, "TX overrun (ch_id=%d)\n", i);
+			dev_err_ratelimited(dev->dev, "TX overrun (ch_id=%d)\n", i);
 			irq_valid = true;
 		}
 
 		/* Error Handling: RX */
 		if (isr[i] & ISR_RXFO) {
-			dev_err(dev->dev, "RX overrun (ch_id=%d)\n", i);
+			rxor_count = READ_ONCE(dev->rx_overrun_count);
+			if (!(rxor_count & 0x3ff))
+				dev_err_ratelimited(dev->dev, "RX overrun (ch_id=%d)\n", i);
+			rxor_count++;
+			WRITE_ONCE(dev->rx_overrun_count, rxor_count);
 			irq_valid = true;
 		}
 	}
