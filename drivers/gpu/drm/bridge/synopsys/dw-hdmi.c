@@ -3650,6 +3650,15 @@ void dw_hdmi_resume(struct dw_hdmi *hdmi)
 }
 EXPORT_SYMBOL_GPL(dw_hdmi_resume);
 
+struct drm_bridge *dw_hdmi_get_bridge(struct dw_hdmi *hdmi)
+{
+	if (IS_ERR_OR_NULL(hdmi))
+		return NULL;
+
+	return &hdmi->bridge;
+}
+EXPORT_SYMBOL_GPL(dw_hdmi_get_bridge);
+
 MODULE_AUTHOR("Sascha Hauer <s.hauer@pengutronix.de>");
 MODULE_AUTHOR("Andy Yan <andy.yan@rock-chips.com>");
 MODULE_AUTHOR("Yakir Yang <ykk@rock-chips.com>");
