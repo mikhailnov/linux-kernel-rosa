@@ -934,7 +934,16 @@ static int pvt_request_regs(struct pvt_hwmon *pvt)
 #else
 	err = of_property_read_u32(pvt->dev->of_node, "pvt_id", &(pvt->pvt_id));
 	if (err) {
-		dev_err(pvt->dev, "couldn't find pvt_id\n");
+		struct resource *res;
+
+		dev_warn(pvt->dev, "couldn't find pvt_id, assume direct addressing\n");
+		res = platform_get_resource(to_platform_device(pvt->dev), IORESOURCE_MEM, 0);
+		if (!res)
+			dev_err(pvt->dev, "couldn't find base address\n");
+			else {
+				pvt->pvt_id = res->start;
+				err = 0;
+			}
 	}
 #endif
 
