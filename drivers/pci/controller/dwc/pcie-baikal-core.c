@@ -641,10 +641,62 @@ static int bm1000_add_pcie_port(struct platform_device *pdev)
 	struct dw_pcie_rp *pp = &pci->pp;
 	int ret;
 
-	pp->irq = platform_get_irq_byname(pdev, "aer");
+	pp->irq = platform_get_irq_byname_optional(pdev, "aer");
 	if (pp->irq < 0) {
-		dev_err(dev, "failed to get \"aer\" IRQ\n");
-		return pp->irq;
+		dev_warn(dev, "failed to get \"aer\" IRQ, trying to get by index\n");
+		pp->irq = platform_get_irq(pdev, 0);
+		if (pp->irq < 0) {
+			dev_err(dev, "failed to get \"aer\" IRQ\n");
+			return pp->irq;
+		}
+		if (IS_ENABLED(CONFIG_PCI_MSI)) {
+			u32 lcru[2];
+			u32 maps[4];
+			struct of_changeset ocs;
+			struct property *prop;
+
+			pp->msi_irq[0] = platform_get_irq(pdev, 1);
+			if (pp->msi_irq[0] < 0) {
+				dev_err(dev, "failed to get \"msi\" IRQ\n");
+				return pp->msi_irq[0];
+			}
+
+			if (of_property_read_u32_array(dev->of_node, "baikal,pcie-lcru", lcru, 2)) {
+				dev_err(dev, "failed to read LCRU\n");
+				return -EINVAL;
+			}
+			if (of_property_read_u32_array(dev->of_node, "msi-map", maps, 4)) {
+				dev_err(dev, "failed to read msi-map\n");
+				return -EINVAL;
+			}
+
+			of_changeset_init(&ocs);
+
+			prop = of_find_property(dev->of_node, "msi-map", NULL);
+			if (!prop) {
+				dev_err(dev, "failed to find property msi-map\n");
+				return -EINVAL;
+			}
+
+			ret=of_changeset_remove_property(&ocs, dev->of_node, prop);
+			if (ret) {
+				dev_err(dev, "failed to remove property msi-map\n");
+				return ret;
+			}
+
+			maps[2] = lcru[1] * 0x10000;
+			ret=of_changeset_add_prop_u32_array(&ocs,dev->of_node,"msi-map",maps,4);
+			if (ret) {
+				dev_err(dev, "failed to modify property msi-map\n");
+				return ret;
+			}
+
+			ret=of_changeset_apply(&ocs);
+			if (ret) {
+				dev_err(dev, "failed to modify property msi-map\n");
+				return ret;
+			}
+		}
 	}
 
 	ret = devm_request_irq(dev, pp->irq, bm1000_pcie_aer_irq_handler,
