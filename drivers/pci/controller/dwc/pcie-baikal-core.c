@@ -122,6 +122,8 @@ static bool baikal_pcie_link_wait_training_done(struct dw_pcie *pci)
 #define BM1000_PCIE_HOT_RST			BIT(12)
 #define BM1000_PCIE_ADB_PWRDWN			BIT(13)
 
+#define BM1000_PCIE_GPR_OFFSET			0x50000
+
 #define BM1000_PCIE_GPR_STATUS_BASE		0x04
 #define BM1000_PCIE_GPR_STATUS(x)		(((x) * 0x20) + BM1000_PCIE_GPR_STATUS_BASE)
 
@@ -144,6 +146,7 @@ struct bm1000_pcie {
 	struct dw_pcie		*pci;
 	unsigned int		num;
 	struct regmap		*gpr;
+	uintptr_t		gpr_offset;
 	union {
 		struct gpio_desc *reset_gpio;
 		struct {
@@ -161,9 +164,9 @@ void bm1000_pcie_phy_enable(struct dw_pcie *pci)
 	struct bm1000_pcie *bm = dev_get_drvdata(pci->dev);
 	u32 reg;
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
 	reg |= BM1000_PCIE_PHY_MGMT_ENABLE | BM1000_PCIE_DBI2_MODE;
-	regmap_write(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), reg);
+	regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), reg);
 }
 
 void bm1000_pcie_phy_disable(struct dw_pcie *pci)
@@ -171,9 +174,9 @@ void bm1000_pcie_phy_disable(struct dw_pcie *pci)
 	struct bm1000_pcie *bm = dev_get_drvdata(pci->dev);
 	u32 reg;
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
 	reg &= ~(BM1000_PCIE_PHY_MGMT_ENABLE | BM1000_PCIE_DBI2_MODE);
-	regmap_write(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), reg);
+	regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), reg);
 }
 
 static int bm1000_get_resources(struct platform_device *pdev,
@@ -185,10 +188,16 @@ static int bm1000_get_resources(struct platform_device *pdev,
 	struct resource *res;
 
 	bm->pci = pci;
+	bm->gpr_offset = 0;
 	bm->gpr = syscon_regmap_lookup_by_compatible("baikal,bm1000-pcie-gpr");
 	if (IS_ERR(bm->gpr)) {
-		dev_err(dev, "failed to find PCIe GPR registers\n");
-		return PTR_ERR(bm->gpr);
+		dev_warn(dev, "failed to find PCIe GPR registers, trying LCRU\n");
+		bm->gpr = syscon_regmap_lookup_by_phandle(dev->of_node, "baikal,pcie-lcru");
+		if (IS_ERR(bm->gpr)) {
+			dev_err(dev, "failed to find PCIe LCRU registers\n");
+			return PTR_ERR(bm->gpr);
+		}
+		bm->gpr_offset = BM1000_PCIE_GPR_OFFSET;
 	}
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
@@ -224,11 +233,11 @@ static int bm1000_pcie_link_up(struct dw_pcie *pci)
 	struct bm1000_pcie *bm = dev_get_drvdata(pci->dev);
 	u32 reg;
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
 	if (!(reg & BM1000_PCIE_LTSSM_ENABLE))
 		return 0;
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_STATUS(bm->num), &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_STATUS(bm->num), &reg);
 	return (reg & BAIKAL_PCIE_LTSSM_MASK) == BAIKAL_PCIE_LTSSM_STATE_L0;
 }
 
@@ -237,9 +246,9 @@ static int bm1000_pcie_start_link(struct dw_pcie *pci)
 	struct bm1000_pcie *bm = dev_get_drvdata(pci->dev);
 	u32 reg;
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
 	reg |= BM1000_PCIE_LTSSM_ENABLE;
-	regmap_write(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), reg);
+	regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), reg);
 	return 0;
 }
 
@@ -454,9 +463,9 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 	/* If link is not established yet, reset the RC */
 	if (!linkup) {
 		/* Disable link training */
-		regmap_read(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
+		regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), &reg);
 		reg &= ~BM1000_PCIE_LTSSM_ENABLE;
-		regmap_write(bm->gpr, BM1000_PCIE_GPR_GENCTL(bm->num), reg);
+		regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_GENCTL(bm->num), reg);
 
 		/* Assert PERST pin */
 		if (acpi_disabled) {
@@ -480,7 +489,7 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 		}
 
 		/* Reset the RC */
-		regmap_read(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), &reg);
+		regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), &reg);
 		reg |= BM1000_PCIE_NONSTICKY_RST |
 		       BM1000_PCIE_STICKY_RST	 |
 		       BM1000_PCIE_PWR_RST	 |
@@ -495,7 +504,7 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 			reg |= BM1000_PCIE_PIPE_RST;
 		}
 
-		regmap_write(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), reg);
+		regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), reg);
 
 		if (!acpi_disabled && bm->num == 2 && bm->gpio[1].is_set) {
 			/* Assert PRSNT pin */
@@ -511,12 +520,12 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 			bm1000_pcie_set_gpio(bm->gpio[0].num, bm->gpio[0].polarity);
 
 		/* Deassert PHY reset */
-		regmap_read(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), &reg);
+		regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), &reg);
 		reg &= ~BM1000_PCIE_PHY_RST;
-		regmap_write(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), reg);
+		regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), reg);
 
 		/* Deassert all software controlled resets */
-		regmap_read(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), &reg);
+		regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), &reg);
 		reg &= ~(BM1000_PCIE_ADB_PWRDWN	   |
 			 BM1000_PCIE_HOT_RST	   |
 			 BM1000_PCIE_NONSTICKY_RST |
@@ -532,7 +541,7 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 			reg &= ~BM1000_PCIE_PIPE_RST;
 		}
 
-		regmap_write(bm->gpr, BM1000_PCIE_GPR_RESET(bm->num), reg);
+		regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_RESET(bm->num), reg);
 	}
 
 	/* Enable error reporting */
@@ -568,11 +577,11 @@ static int bm1000_pcie_host_init(struct dw_pcie_rp *pp)
 		dw_pcie_writew_dbi(pci, exp_cap_off + PCI_EXP_LNKCTL2, reg);
 	}
 
-	regmap_read(bm->gpr, BM1000_PCIE_GPR_MSI_TRANS_CTL2, &reg);
+	regmap_read(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_MSI_TRANS_CTL2, &reg);
 	reg &= ~BM1000_PCIE_MSI_TRANS_RCNUM_MASK(bm->num);
 	reg |= BM1000_PCIE_MSI_TRANS_RCNUM(bm->num);
 	reg |= BM1000_PCIE_MSI_TRANS_EN(bm->num);
-	regmap_write(bm->gpr, BM1000_PCIE_GPR_MSI_TRANS_CTL2, reg);
+	regmap_write(bm->gpr, bm->gpr_offset + BM1000_PCIE_GPR_MSI_TRANS_CTL2, reg);
 
 	/* RX/TX equalizers fine tune */
 	bm1000_pcie_tune(pci);
@@ -1125,6 +1134,7 @@ static int bm1000_get_acpi_data(struct device *dev, struct bm1000_pcie *bm,
 	struct acpi_device *adev = to_acpi_device(dev), *res_dev;
 	int ret;
 
+	bm->gpr_offset = 0;
 	bm->gpr = bm1000_pcie_get_gpr_acpi(bm);
 	if (IS_ERR_OR_NULL(bm->gpr)) {
 		dev_err(dev, "No PCIe GPR specified\n");
