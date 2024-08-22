@@ -238,8 +238,12 @@ static int baikal_clk_probe(struct platform_device *pdev)
 	of_property_read_string(node, "clock-output-names", &cmu->name);
 	of_property_read_u32(node, "clock-frequency", &cmu->parent);
 	rc = of_property_read_u64(node, "reg", &base);
-	if (rc)
-		return rc;
+	if (rc) {
+		base = 0;
+		rc = of_property_read_u32(node, "cmu-id", (void *)&base);
+		if (rc)
+			return rc;
+	}
 
 	cmu->base = base;
 
@@ -816,6 +820,7 @@ device_initcall(bm1000_cmu_driver_acpi_init);
 
 static const struct of_device_id baikal_clk_of_match[] = {
 	{ .compatible = "baikal,bm1000-cmu" },
+	{ .compatible = "baikal,cmu" },
 	{ }
 };
 
