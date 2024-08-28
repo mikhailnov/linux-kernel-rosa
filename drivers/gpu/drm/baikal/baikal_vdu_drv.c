@@ -454,10 +454,12 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 		dev_info(dev, "No 'lvds-lanes' property found\n");
 	}
 	if (lvds->ready) {
+#if 0
 		ret = baikal_vdu_backlight_create(drm);
 		if (ret) {
 			dev_err(dev, "LVDS: failed to create backlight\n");
 		}
+#endif
 		if (bridge_is_baikal_lvds_bridge(lvds->bridge)) {
 			panel_bridge = bridge_to_baikal_lvds_bridge(lvds->bridge);
 			panel_bridge->vdu = lvds;
