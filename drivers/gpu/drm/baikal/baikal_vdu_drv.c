@@ -48,6 +48,9 @@ int mode_override = 0;
 int hdmi_off = 0;
 int lvds_off = 0;
 
+#define legacy_LDVS	1
+#define legacy_HDMI	2
+
 static struct drm_driver vdu_drm_driver;
 
 static struct drm_mode_config_funcs mode_config_funcs = {
@@ -68,10 +71,13 @@ static struct drm_bridge *devm_baikal_get_bridge(struct device *dev,
 	struct drm_bridge *bridge;
 	struct drm_panel *panel;
 	struct fwnode_handle *fwnode;
+	struct drm_device *drm = dev_get_drvdata(dev);
+	struct baikal_vdu_crossbar *crossbar = drm_to_baikal_vdu_crossbar(drm);
 	int ret = 0;
 
 	if (is_of_node(dev->fwnode)) {
-		ret = drm_of_find_panel_or_bridge(to_of_node(dev->fwnode), port,
+		ret = drm_of_find_panel_or_bridge(to_of_node(dev->fwnode),
+						  crossbar->legacy ? 0 : port,
 						  endpoint, &panel, &bridge);
 	} else {
 		if (port == CRTC_HDMI) {
@@ -216,12 +222,18 @@ static int baikal_vdu_allocate_resources(struct platform_device *pdev,
 		struct baikal_vdu_private *priv)
 {
 	struct device *dev = &pdev->dev;
+	struct drm_device *drm = priv->drm;
+	struct baikal_vdu_crossbar *crossbar = drm_to_baikal_vdu_crossbar(drm);
 	struct resource *mem;
 	int ret;
 
-	mem = platform_get_resource_byname(pdev, IORESOURCE_MEM, priv->regs_name);
-	if (!mem)
-		mem = platform_get_resource(pdev, IORESOURCE_MEM, priv->index);
+	if (crossbar->legacy)
+		mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	else {
+		mem = platform_get_resource_byname(pdev, IORESOURCE_MEM, priv->regs_name);
+		if (!mem)
+			mem = platform_get_resource(pdev, IORESOURCE_MEM, priv->index);
+	}
 
 	if (!mem) {
 		dev_err(dev, "%s %s: no MMIO resource specified\n", __func__, priv->name);
@@ -257,9 +269,14 @@ static int baikal_vdu_allocate_irq(struct platform_device *pdev,
 	       struct baikal_vdu_private *priv)
 {
 	struct device *dev = &pdev->dev;
+	struct drm_device *drm = priv->drm;
+	struct baikal_vdu_crossbar *crossbar = drm_to_baikal_vdu_crossbar(drm);
 	int ret;
 
-	priv->irq = fwnode_irq_get_byname(dev->fwnode, priv->irq_name);
+	if (crossbar->legacy)
+		priv->irq = fwnode_irq_get(dev->fwnode, 0);
+	else
+		priv->irq = fwnode_irq_get_byname(dev->fwnode, priv->irq_name);
 	if (priv->irq < 0) {
 		dev_err(dev, "%s %s: no IRQ resource specified\n", __func__, priv->name);
 		return -EINVAL;
@@ -355,6 +372,8 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 	struct drm_device *drm;
 	struct drm_mode_config *mode_config;
 	struct arm_smccc_res res;
+	struct device_node *node;
+	int node_count;
 	int ret;
 
 	crossbar = devm_drm_dev_alloc(dev, &vdu_drm_driver,
@@ -364,24 +383,55 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 
 	drm = &crossbar->drm;
 	platform_set_drvdata(pdev, drm);
+	crossbar->legacy = 0;
 	hdmi = &crossbar->hdmi;
 	baikal_vdu_set_name(hdmi, CRTC_HDMI, "hdmi");
 	lvds = &crossbar->lvds;
 	baikal_vdu_set_name(lvds, CRTC_LVDS, "lvds");
 
-	ret = baikal_vdu_bridge_init(hdmi, drm);
-	if (ret == -EPROBE_DEFER) {
-		goto out_drm;
+	node = NULL;
+	node_count = 0;
+	while ((node = of_find_compatible_node(node, NULL, "baikal,vdu")))
+		node_count++;
+
+	if (node_count > 1) {
+		dev_info(dev, "Found separate description of VDU devices\n");
+		if (device_property_present(dev, "lvds-out")) {
+			// LVDS
+			crossbar->legacy = legacy_LDVS;
+			sprintf(lvds->pclk_name, "pclk");
+			lvds->index = CRTC_LVDS;
+		} else {
+			// HDMI
+			crossbar->legacy = legacy_HDMI;
+			sprintf(hdmi->pclk_name, "pclk");
+			hdmi->index = CRTC_HDMI;
+		}
 	}
 
-	ret = device_property_read_u32(&pdev->dev, "lvds-lanes",
-				       &lvds->num_lanes);
-	if (ret)
-		lvds->num_lanes = 0;
-	if (lvds->num_lanes) {
-		ret = baikal_vdu_bridge_init(lvds, drm);
+	if (crossbar->legacy != legacy_LDVS) {
+		ret = baikal_vdu_bridge_init(hdmi, drm);
 		if (ret == -EPROBE_DEFER) {
 			goto out_drm;
+		}
+	}
+
+	if (crossbar->legacy != legacy_HDMI) {
+		ret = device_property_read_u32(&pdev->dev, "lvds-lanes",
+					       &lvds->num_lanes);
+		if (ret) {
+			if (crossbar->legacy) {
+				lvds->num_lanes = of_graph_get_endpoint_count(dev->of_node);
+				if (lvds->num_lanes < 0)
+					lvds->num_lanes = 0;
+			} else
+				lvds->num_lanes = 0;
+		}
+		if (lvds->num_lanes) {
+			ret = baikal_vdu_bridge_init(lvds, drm);
+			if (ret == -EPROBE_DEFER) {
+				goto out_drm;
+			}
 		}
 	}
 
@@ -394,10 +444,10 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 	mode_config->max_height = 8192;
 
 	hdmi->off = hdmi_off;
-	hdmi->ready = baikal_vdu_resources_init(pdev, hdmi);
+	hdmi->ready = (crossbar->legacy != legacy_LDVS) && baikal_vdu_resources_init(pdev, hdmi);
 	if (lvds->num_lanes) {
 		lvds->off = lvds_off;
-		lvds->ready = baikal_vdu_resources_init(pdev, lvds);
+		lvds->ready = (crossbar->legacy != legacy_HDMI) && baikal_vdu_resources_init(pdev, lvds);
 	} else {
 		lvds->ready = 0;
 		lvds->bridge = NULL;

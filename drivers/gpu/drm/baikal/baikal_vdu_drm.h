@@ -67,6 +67,7 @@ struct baikal_vdu_crossbar {
 	struct drm_device drm;
 	struct baikal_vdu_private hdmi;
 	struct baikal_vdu_private lvds;
+	int legacy;
 };
 
 struct baikal_lvds_bridge {
