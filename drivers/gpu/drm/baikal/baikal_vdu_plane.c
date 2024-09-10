@@ -87,6 +87,11 @@ static void baikal_vdu_primary_plane_atomic_update(struct drm_plane *plane,
 	}
 
 	writel(cntl, priv->regs + CR1);
+
+	spin_lock_irqsave(&priv->lock, flags);
+	writel((fb->pitches[0] / DIV_ROUND_UP(drm_format_info_bpp(fb->format, 0), 8)) |
+		HPPLOR_HPOE, priv->regs + HPPLOR);
+	spin_unlock_irqrestore(&priv->lock, flags);
 }
 
 static const struct drm_plane_helper_funcs baikal_vdu_primary_plane_helper_funcs = {
