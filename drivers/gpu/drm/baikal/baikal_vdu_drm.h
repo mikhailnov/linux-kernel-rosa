@@ -19,6 +19,8 @@
 #include <linux/gpio.h>
 #include <linux/backlight.h>
 
+#include "baikal_vdu_regs.h"
+
 #define CRTC_HDMI	0
 #define CRTC_LVDS	1
 
@@ -54,6 +56,7 @@ struct baikal_vdu_private {
 	int data_mapping;
 	int off;
 	int ready;
+	bool vblank;
 
 	/* backlight */
 	struct gpio_desc *enable_gpio;
@@ -84,6 +87,21 @@ struct baikal_hdmi_bridge {
 };
 
 /* Generic functions */
+
+static inline void baikal_vdu_set_irq(struct baikal_vdu_private *priv, bool irq, bool vblank)
+{
+	u32 val;
+
+	priv->vblank = vblank && irq;
+
+	val = priv->vblank ? INTR_VCT + INTR_FER : INTR_FER;
+	val = irq ? val : 0;
+
+	/* clear interrupt status */
+	writel(0x3ffff, priv->regs + ISR);
+	writel(val, priv->regs + IMR);
+}
+
 inline void baikal_vdu_switch_on(struct baikal_vdu_private *priv);
 
 inline void baikal_vdu_switch_off(struct baikal_vdu_private *priv);
