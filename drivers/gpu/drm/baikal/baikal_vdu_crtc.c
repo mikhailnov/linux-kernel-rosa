@@ -36,6 +36,13 @@ irqreturn_t baikal_vdu_irq(int irq, void *data)
 	irq_stat = readl(priv->regs + IVR);
 	raw_stat = readl(priv->regs + ISR);
 
+	if (irq_stat & INTR_VCT) {
+		priv->counters[10]++;
+		if (priv->vblank)
+			drm_crtc_handle_vblank(&priv->crtc);
+		status = IRQ_HANDLED;
+	}
+
 	if (raw_stat & INTR_UFU) {
 		priv->counters[4]++;
 		status = IRQ_HANDLED;
@@ -228,6 +235,7 @@ static void baikal_vdu_crtc_helper_mode_set_nofb(struct drm_crtc *crtc)
 	unsigned int ppl, hsw, hfp, hbp;
 	unsigned int lpp, vsw, vfp, vbp;
 	unsigned int reg;
+	unsigned long flags;
 	int ret = 0;
 
 	drm_mode_debug_printmodeline(mode);
@@ -260,29 +268,31 @@ static void baikal_vdu_crtc_helper_mode_set_nofb(struct drm_crtc *crtc)
 		DRM_ERROR("Cannot set desired pixel clock (%lu Hz)\n", rate);
 
 	ppl = mode->hdisplay / 16;
-	if (priv->index == CRTC_LVDS && priv-> num_lanes == 2) {
+	if (priv->index == CRTC_LVDS && priv->num_lanes == 2) {
 		hsw = mode->hsync_end - mode->hsync_start;
 		hfp = mode->hsync_start - mode->hdisplay - 1;
+		hbp = mode->htotal - mode->hsync_end;
 	} else {
 		hsw = mode->hsync_end - mode->hsync_start - 1;
-		hfp = mode->hsync_start - mode->hdisplay;
+		hfp = mode->hsync_start - mode->hdisplay - 1;
+		hbp = mode->htotal - mode->hsync_end - 1;
 	}
-	hbp = mode->htotal - mode->hsync_end;
 
 	lpp = mode->vdisplay;
 	vsw = mode->vsync_end - mode->vsync_start;
 	vfp = mode->vsync_start - mode->vdisplay;
 	vbp = mode->vtotal - mode->vsync_end;
 
+	spin_lock_irqsave(&priv->lock, flags);
 	writel((HTR_HFP(hfp) & HTR_HFP_MASK) |
 			(HTR_PPL(ppl) & HTR_PPL_MASK) |
 			(HTR_HBP(hbp) & HTR_HBP_MASK) |
 			(HTR_HSW(hsw) & HTR_HSW_MASK),
 			priv->regs + HTR);
-
 	if (mode->hdisplay > 4080 || ppl * 16 != mode->hdisplay)
 		writel((HPPLOR_HPPLO(mode->hdisplay) & HPPLOR_HPPLO_MASK) | HPPLOR_HPOE,
-				priv->regs + HPPLOR);
+			priv->regs + HPPLOR);
+	spin_unlock_irqrestore(&priv->lock, flags);
 
 	writel((VTR1_VSW(vsw) & VTR1_VSW_MASK) |
 			(VTR1_VFP(vfp) & VTR1_VFP_MASK) |
@@ -329,7 +339,18 @@ static void baikal_vdu_crtc_helper_enable(struct drm_crtc *crtc,
 	u32 cntl, gpio;
 
 	DRM_DEV_DEBUG_DRIVER(crtc->dev->dev, "enabling pixel clock\n");
+
+	writel(ISCR_VSC_VFP, priv->regs + ISCR);
+
+	/* hold clock domain reset; disable clocking */
+	writel(0, priv->regs + PCTR);
+
 	baikal_vdu_crtc_clk_enable(priv);
+
+	/* release clock reset; enable clocking */
+	cntl = readl(priv->regs + PCTR);
+	cntl |= PCTR_PCR + PCTR_PCI;
+	writel(cntl, priv->regs + PCTR);
 
 	/* Set 16-word input FIFO watermark */
 	/* Enable and Power Up */
@@ -373,16 +394,14 @@ static void baikal_vdu_crtc_helper_enable(struct drm_crtc *crtc,
 		cntl |= CR1_OPS_LCD24;
 	writel(cntl, priv->regs + CR1);
 
-	writel(0x3ffff, priv->regs + ISR);
-	writel(INTR_FER, priv->regs + IMR);
+	drm_crtc_vblank_on(crtc);
 }
 
 static void baikal_vdu_crtc_helper_disable(struct drm_crtc *crtc)
 {
 	struct baikal_vdu_private *priv = crtc_to_baikal_vdu(crtc);
 
-	writel(0x3ffff, priv->regs + ISR);
-	writel(0, priv->regs + IMR);
+	drm_crtc_vblank_off(crtc);
 
 	/* Disable clock */
 	DRM_DEV_DEBUG_DRIVER(crtc->dev->dev, "disabling pixel clock\n");
@@ -406,6 +425,21 @@ static void baikal_vdu_crtc_helper_atomic_flush(struct drm_crtc *crtc,
 	}
 }
 
+static int baikal_vdu_enable_vblank(struct drm_crtc *crtc)
+{
+	struct baikal_vdu_private *priv = crtc_to_baikal_vdu(crtc);
+
+	baikal_vdu_set_irq(priv, true, true);
+	return 0;
+}
+
+static void baikal_vdu_disable_vblank(struct drm_crtc *crtc)
+{
+	struct baikal_vdu_private *priv = crtc_to_baikal_vdu(crtc);
+
+	baikal_vdu_set_irq(priv, true, false);
+}
+
 const struct drm_crtc_funcs crtc_funcs = {
 	.set_config = drm_atomic_helper_set_config,
 	.page_flip = drm_atomic_helper_page_flip,
@@ -413,6 +447,8 @@ const struct drm_crtc_funcs crtc_funcs = {
 	.destroy = drm_crtc_cleanup,
 	.atomic_duplicate_state = drm_atomic_helper_crtc_duplicate_state,
 	.atomic_destroy_state = drm_atomic_helper_crtc_destroy_state,
+	.enable_vblank = baikal_vdu_enable_vblank,
+	.disable_vblank = baikal_vdu_disable_vblank,
 };
 
 const struct drm_crtc_helper_funcs crtc_helper_funcs = {

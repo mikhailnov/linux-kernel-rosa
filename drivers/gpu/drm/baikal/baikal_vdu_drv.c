@@ -33,6 +33,7 @@
 #include <drm/drm_of.h>
 #include <drm/drm_panel.h>
 #include <drm/drm_probe_helper.h>
+#include <drm/drm_vblank.h>
 
 #include "baikal_vdu_drm.h"
 #include "baikal_vdu_regs.h"
@@ -283,7 +284,7 @@ static int baikal_vdu_allocate_irq(struct platform_device *pdev,
 	}
 
 	/* turn off interrupts before requesting the irq */
-	writel(0, priv->regs + IMR);
+	baikal_vdu_set_irq(priv, false, false);
 	ret = request_irq(priv->irq, baikal_vdu_irq, IRQF_SHARED, dev->driver->name, priv);
 	if (ret != 0)
 		dev_err(dev, "%s %s: IRQ %d allocation failed\n", __func__, priv->name, priv->irq);
@@ -292,8 +293,7 @@ static int baikal_vdu_allocate_irq(struct platform_device *pdev,
 
 static void baikal_vdu_free_irq(struct baikal_vdu_private *priv)
 {
-	writel(0, priv->regs + IMR);
-	writel(0x3ffff, priv->regs + ISR);
+	baikal_vdu_set_irq(priv, false, false);
 	free_irq(priv->irq, priv->drm->dev);
 }
 
@@ -473,6 +473,14 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 	lvds->ready = lvds->ready & !lvds->off;
 	dev_info(dev, "%s output %s\n", hdmi->name, hdmi->ready ? "enabled" : "disabled");
 	dev_info(dev, "%s output %s\n", lvds->name, lvds->ready ? "enabled" : "disabled");
+
+	ret = drm_vblank_init(drm, (hdmi->ready ? 1 : 0) +
+				   (lvds->ready ? 1 : 0));
+	if (ret) {
+		dev_err(dev, "failed to init vblank\n");
+		goto out_config;
+	}
+
 	baikal_vdu_remove_efifb(drm);
 
 	if (hdmi->ready || lvds->ready) {
@@ -486,7 +494,9 @@ static int baikal_vdu_drm_probe(struct platform_device *pdev)
 			dev_err(dev, "failed to register DRM device\n");
 			goto out_config;
 		}
+
 		drm_fbdev_dma_setup(drm, 32);
+
 #if defined(CONFIG_DEBUG_FS)
 		if (hdmi->ready)
 			baikal_vdu_hdmi_debugfs_init(drm->primary);
