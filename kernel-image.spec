@@ -1,11 +1,11 @@
 Name: kernel-image-@kflavour@
-Release: alt1
+Release: alt0.rc1
 %define kernel_src_version	6.11
-%define kernel_base_version	6.11
-%define kernel_sublevel	.1
+%define kernel_base_version	6.12
+%define kernel_sublevel	.0
 %define kernel_extra_version	%nil
 %define kversion	%kernel_base_version%kernel_sublevel%kernel_extra_version
-%define kernel_latest	latest
+%define kernel_latest	new
 Version: %kversion
 
 %define krelease	%release
@@ -578,6 +578,9 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Mon Sep 30 2024 Vitaly Chikunov <vt@altlinux.org> 6.12.0-alt0.rc1
+- Rebase to v6.12-rc1 (2024-09-29).
+
 * Mon Sep 30 2024 Vitaly Chikunov <vt@altlinux.org> 6.11.1-alt1
 - Update to v6.11.1 (2024-09-30).
 - config: Enable CONFIG_FPROBE=y.
