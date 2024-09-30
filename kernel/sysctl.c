@@ -95,6 +95,12 @@ EXPORT_SYMBOL_GPL(sysctl_long_vals);
 #ifdef CONFIG_PERF_EVENTS
 static const int six_hundred_forty_kb = 640 * 1024;
 #endif
+#ifdef CONFIG_USER_NS
+extern int sysctl_userns_restrict;
+#endif
+extern int sysctl_idmap_mounts;
+extern int sysctl_io_uring_paranoid;
+
 
 
 static const int ngroups_max = NGROUPS_MAX;
@@ -1491,6 +1497,29 @@ int proc_do_large_bitmap(const struct ctl_table *table, int write,
 	return err;
 }
 
+#ifdef CONFIG_USER_NS
+static int sysctl_unprivileged_userns_clone(const struct ctl_table *table, int write,
+					    void *buffer, size_t *lenp,
+					    loff_t *ppos)
+{
+	struct ctl_table t;
+	int err;
+	int state = !sysctl_userns_restrict;
+
+	t = *table;
+	t.data = &state;
+
+	err = proc_dointvec_minmax(&t, write, buffer, lenp, ppos);
+	if (err < 0)
+	    return err;
+
+	if (write)
+	    sysctl_userns_restrict = !state;
+
+	return 0;
+}
+#endif
+
 #else /* CONFIG_PROC_SYSCTL */
 
 int proc_dostring(const struct ctl_table *table, int write,
@@ -1576,6 +1605,15 @@ int proc_do_large_bitmap(const struct ctl_table *table, int write,
 {
 	return -ENOSYS;
 }
+
+#ifdef CONFIG_USER_NS
+static int sysctl_unprivileged_userns_clone(struct ctl_table *table, int write,
+					    void *buffer, size_t *lenp,
+					    loff_t *ppos)
+{
+	return -ENOSYS;
+}
+#endif
 
 #endif /* CONFIG_PROC_SYSCTL */
 
@@ -1826,6 +1864,44 @@ static struct ctl_table kern_table[] = {
 		.maxlen		= sizeof(unsigned long),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
+	},
+	{
+		.procname       = "idmap_mounts",
+		.data           = &sysctl_idmap_mounts,
+		.maxlen         = sizeof(int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
+	},
+#ifdef CONFIG_USER_NS
+       {
+               .procname       = "userns_restrict",
+               .data           = &sysctl_userns_restrict,
+               .maxlen         = sizeof(int),
+               .mode           = 0644,
+               .proc_handler   = proc_dointvec_minmax,
+               .extra1         = SYSCTL_ZERO,
+               .extra2         = SYSCTL_ONE,
+       },
+	{
+		.procname	= "unprivileged_userns_clone",
+		.data		= NULL /* filled in by the handler */,
+		.maxlen		= sizeof(int),
+		.mode		= 0644,
+		.proc_handler	= sysctl_unprivileged_userns_clone,
+		.extra1		= SYSCTL_ZERO,
+		.extra2		= SYSCTL_ONE,
+	},
+#endif
+	{
+		.procname       = "io_uring_paranoid",
+		.data           = &sysctl_io_uring_paranoid,
+		.maxlen         = sizeof(int),
+		.mode           = 0644,
+		.proc_handler   = proc_dointvec_minmax,
+		.extra1         = SYSCTL_ZERO,
+		.extra2         = SYSCTL_ONE,
 	},
 	{
 		.procname	= "ngroups_max",

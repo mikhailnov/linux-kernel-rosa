@@ -151,6 +151,7 @@ static void io_queue_sqe(struct io_kiocb *req);
 
 struct kmem_cache *req_cachep;
 static struct workqueue_struct *iou_wq __ro_after_init;
+int sysctl_io_uring_paranoid __read_mostly = 0;
 
 static int __read_mostly sysctl_io_uring_disabled;
 static int __read_mostly sysctl_io_uring_group = -1;
@@ -3719,6 +3720,13 @@ static long io_uring_setup(u32 entries, struct io_uring_params __user *params)
 {
 	struct io_uring_params p;
 	int i;
+
+	if (sysctl_io_uring_paranoid && !capable(CAP_SYS_ADMIN)) {
+		pr_warn_once("io_uring: kernel.io_uring_paranoid mode is enabled.\n");
+		pr_notice_ratelimited("%s (pid %d) io_uring_setup(2) request denied.\n",
+				      current->comm, current->pid);
+		return -EACCES;
+	}
 
 	if (copy_from_user(&p, params, sizeof(p)))
 		return -EFAULT;
