@@ -341,7 +341,7 @@ static int tp_serio_create_port(struct tp_serio_data *drv, unsigned int id)
 	serio = devm_kzalloc(dev, sizeof(struct serio), GFP_KERNEL);
 	if (!serio)
 		return -ENOMEM;
-	strlcpy(serio->name, "tp_serio", sizeof(serio->name));
+	strscpy(serio->name, "tp_serio", sizeof(serio->name));
 #if defined(CONFIG_SPI)
 	if (drv->dev_spi != NULL) {
 		snprintf(serio->phys, sizeof(serio->phys),
@@ -486,8 +486,7 @@ static int tp_serio_device_query(struct tp_serio_data *drv)
 }
 
 #if defined(CONFIG_I2C)
-static int tp_serio_probe_i2c(struct i2c_client *client,
-		const struct i2c_device_id *id)
+static int tp_serio_probe_i2c(struct i2c_client *client)
 {
 	struct tp_serio_data *drv;
 	unsigned int index;
