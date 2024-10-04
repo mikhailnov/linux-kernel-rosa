@@ -354,11 +354,11 @@ install -d %buildroot%modules_dir/updates
 install -d %buildroot%modules_dir/kernel/drivers/media-core/
 mv %buildroot%modules_dir/kernel/drivers/media/common/videobuf2/ %buildroot%modules_dir/kernel/drivers/media-core/
 mv %buildroot%modules_dir/kernel/drivers/media/mc/ %buildroot%modules_dir/kernel/drivers/media-core/
-mv %buildroot%modules_dir/kernel/drivers/media/v4l2-core/videodev.ko %buildroot%modules_dir/kernel/drivers/media-core/
+mv %buildroot%modules_dir/kernel/drivers/media/v4l2-core/videodev.ko* %buildroot%modules_dir/kernel/drivers/media-core/
 # other deps
-mv %buildroot%modules_dir/kernel/drivers/media/rc/rc-core.ko %buildroot%modules_dir/kernel/drivers/media-core/
-mv %buildroot%modules_dir/kernel/drivers/media/dvb-core/dvb-core.ko %buildroot%modules_dir/kernel/drivers/media-core/
-mv %buildroot%modules_dir/kernel/drivers/media/radio/tea575x.ko %buildroot%modules_dir/kernel/drivers/media-core/
+mv %buildroot%modules_dir/kernel/drivers/media/rc/rc-core.ko* %buildroot%modules_dir/kernel/drivers/media-core/
+mv %buildroot%modules_dir/kernel/drivers/media/dvb-core/dvb-core.ko* %buildroot%modules_dir/kernel/drivers/media-core/
+mv %buildroot%modules_dir/kernel/drivers/media/radio/tea575x.ko* %buildroot%modules_dir/kernel/drivers/media-core/
 
 %ifarch aarch64 %arm
 make dtbs_install INSTALL_DTBS_PATH=%buildroot/boot/devicetree/$KernelVer
@@ -531,12 +531,12 @@ check-pesign-helper
 %exclude %modules_dir/kernel/drivers/media/
 %exclude %modules_dir/kernel/drivers/staging/
 %exclude %modules_dir/kernel/drivers/gpu/
-%exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko
-%exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko
+%exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko*
+%exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko*
 %ifarch armh aarch64
 # usb_f_uvc now depends on drm causing "kernel image shouldn't require
 # kernel modules" "sisyphus_check: check-kernel ERROR: kernel package.
-%exclude %modules_dir/kernel/drivers/usb/gadget/function/usb_f_uvc.ko
+%exclude %modules_dir/kernel/drivers/usb/gadget/function/usb_f_uvc.ko*
 %endif
 %ifarch aarch64 %arm
 /boot/devicetree/%kversion-%flavour-%krelease
@@ -562,10 +562,10 @@ check-pesign-helper
 %files -n kernel-modules-drm-%flavour
 %modules_dir/kernel/drivers/gpu/
 %modules_dir/kernel/drivers/media/
-%modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko
-%modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko
+%modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko*
+%modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko*
 %ifarch armh aarch64
-%modules_dir/kernel/drivers/usb/gadget/function/usb_f_uvc.ko
+%modules_dir/kernel/drivers/usb/gadget/function/usb_f_uvc.ko*
 %endif
 %exclude %modules_dir/kernel/drivers/gpu/drm/nouveau
 
