@@ -439,6 +439,7 @@ KbuildFiles="
 	scripts/recordmcount.c
 	scripts/recordmcount
 	scripts/gcc-x86_*-has-stack-protector.sh
+	scripts/module-common.c
 	scripts/module-common.lds
 	scripts/subarch.include
 	scripts/depmod.sh
