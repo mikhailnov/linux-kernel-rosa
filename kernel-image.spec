@@ -132,10 +132,6 @@ Most hardware drivers for this kernel are built as modules.  Some of
 these drivers are built separately from the kernel; they are available
 in separate packages (kernel-modules-*-%flavour).
 
-There are some other kernel variants in ALT systems:
-* std-def: latest longterm (LTS) kernel;
-* un-def:  latest stable kernel, usually higher version than std-def.
-
 %package -n kernel-image-domU-%flavour
 Summary: Uncompressed linux kernel for XEN domU boot 
 Group: System/Kernel and hardware
