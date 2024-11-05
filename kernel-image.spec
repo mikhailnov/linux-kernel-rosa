@@ -525,6 +525,7 @@ check-pesign-helper
 %modules_dir/updates
 %modules_dir/kernel
 %exclude %modules_dir/build
+%exclude %modules_dir/kernel/drivers/accel/
 %exclude %modules_dir/kernel/drivers/media/
 %exclude %modules_dir/kernel/drivers/staging/
 %exclude %modules_dir/kernel/drivers/gpu/
@@ -558,6 +559,7 @@ check-pesign-helper
 
 %files -n kernel-modules-drm-%flavour
 %modules_dir/kernel/drivers/gpu/
+%modules_dir/kernel/drivers/accel/
 %modules_dir/kernel/drivers/media/
 %modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko*
 %modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko*
