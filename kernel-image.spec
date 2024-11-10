@@ -1,5 +1,5 @@
 Name: kernel-image-@kflavour@
-Release: alt0.rc6
+Release: alt0.rc7
 %define kernel_src_version	6.11
 %define kernel_base_version	6.12
 %define kernel_sublevel	.0
@@ -577,6 +577,9 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Sun Nov 10 2024 Vitaly Chikunov <vt@altlinux.org> 6.12.0-alt0.rc7
+- Update to v6.12-rc7 (2024-11-10).
+
 * Mon Nov 04 2024 Vitaly Chikunov <vt@altlinux.org> 6.12.0-alt0.rc6
 - Update to v6.12-rc6 (2024-11-03).
 
