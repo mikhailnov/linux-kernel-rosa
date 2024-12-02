@@ -296,7 +296,7 @@ subst 's/CC.*$(CROSS_COMPILE)gcc/CC         := $(shell echo $${GCC_USE_CCACHE:+c
 find . -name "*.orig" -delete -or -name "*~" -delete
 
 %ifarch %ix86 armh
-sed -Ei 's/-j\d*//' scripts/Makefile.btf
+sed -Ei '/-flags/s/-j\S*//' scripts/Makefile.btf
 %endif
 
 %build
