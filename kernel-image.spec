@@ -531,6 +531,12 @@ check-pesign-helper
 %exclude %modules_dir/kernel/drivers/gpu/
 %exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko*
 %exclude %modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko*
+%ifarch aarch64
+%exclude %modules_dir/kernel/drivers/phy/qualcomm/phy-qcom-qmp-combo.ko*
+%exclude %modules_dir/kernel/drivers/soc/qcom/pmic_glink_altmode.ko*
+%exclude %modules_dir/kernel/drivers/usb/typec/tcpm/qcom/qcom_pmic_tcpm.ko*
+%exclude %modules_dir/kernel/drivers/leds/flash/leds-qcom-flash.ko*
+%endif
 %ifarch armh aarch64
 # usb_f_uvc now depends on drm causing "kernel image shouldn't require
 # kernel modules" "sisyphus_check: check-kernel ERROR: kernel package.
@@ -563,6 +569,12 @@ check-pesign-helper
 %modules_dir/kernel/drivers/media/
 %modules_dir/kernel/drivers/usb/typec/altmodes/typec_displayport.ko*
 %modules_dir/kernel/drivers/usb/typec/altmodes/typec_nvidia.ko*
+%ifarch aarch64
+%modules_dir/kernel/drivers/phy/qualcomm/phy-qcom-qmp-combo.ko*
+%modules_dir/kernel/drivers/soc/qcom/pmic_glink_altmode.ko*
+%modules_dir/kernel/drivers/usb/typec/tcpm/qcom/qcom_pmic_tcpm.ko*
+%modules_dir/kernel/drivers/leds/flash/leds-qcom-flash.ko*
+%endif
 %ifarch armh aarch64
 %modules_dir/kernel/drivers/usb/gadget/function/usb_f_uvc.ko*
 %endif
