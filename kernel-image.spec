@@ -2,7 +2,7 @@ Name: kernel-image-@kflavour@
 Release: alt1
 %define kernel_src_version	6.12
 %define kernel_base_version	6.12
-%define kernel_sublevel	.3
+%define kernel_sublevel	.4
 %define kernel_extra_version	%nil
 %define kversion	%kernel_base_version%kernel_sublevel%kernel_extra_version
 %define kernel_latest	latest
@@ -589,6 +589,10 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Mon Dec 09 2024 Kernel Bot <kernelbot@altlinux.org> 6.12.4-alt1
+- v6.12.4 (2024-12-09).
+- config-aarch64: add Qualcomm SoCs based devices support.
+
 * Fri Dec 06 2024 Kernel Bot <kernelbot@altlinux.org> 6.12.3-alt1
 - v6.12.3 (2024-12-06).
 
