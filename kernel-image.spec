@@ -489,9 +489,11 @@ popd
 # ghostify *.bin files
 truncate -s0 %buildroot%modules_dir/modules.*.bin
 
+%if "%sub_flavour" == "def"
 # install documentation
 install -d %buildroot%_docdir/kernel-doc-%base_flavour-%version/
 cp -a Documentation/* %buildroot%_docdir/kernel-doc-%base_flavour-%version/
+%endif
 
 # On some architectures (at least ppc64le) kernel image is ELF and
 # eu-findtextrel will fail if it is not a DSO or PIE.
@@ -570,8 +572,10 @@ check-pesign-helper
 %dir %modules_dir/
 %modules_dir/build
 
+%if "%sub_flavour" == "def"
 %files -n kernel-doc-%base_flavour
 %doc %_docdir/kernel-doc-%base_flavour-%version
+%endif
 
 %files -n kernel-modules-drm-%flavour
 %modules_dir/kernel/drivers/gpu/
