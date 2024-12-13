@@ -202,11 +202,9 @@ technical reasons.
 Summary: Header files for the Linux kernel
 Group: Development/Kernel
 Requires: kernel-headers-common
-%if "%sub_flavour" == "def"
-Provides: kernel-headers = %version
-%endif
 AutoReqProv: nocpp
 %if "%sub_flavour" == "def"
+Provides: kernel-headers = %version
 Provides: kernel-headers-%kernel_latest = %version-%release
 %endif
 
