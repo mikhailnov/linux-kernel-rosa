@@ -46,6 +46,8 @@ Patch0: %name-%version-%release.patch
 
 %if "%sub_flavour" == "pae"
 ExclusiveArch: i586
+%else %if "%base_flavour" == "rt"
+ExclusiveArch: x86_64 aarch64
 %else
 ExclusiveArch: i586 x86_64 ppc64le aarch64 armh
 %endif
@@ -273,6 +275,11 @@ tar -xf %kernel_src/kernel-source-%kernel_src_version.tar
 %define _default_patch_flags -s
 %autopatch -p1
 
+%if "%base_flavour" == "rt"
+# fix -rt suffix
+rm -f localversion*
+%endif
+
 # this file should be usable both with make and sh (for broken modules
 # which do not use the kernel makefile system)
 echo 'export GCC_VERSION=%kgcc_version' > gcc_version.inc
@@ -301,6 +308,9 @@ echo "Building Kernel $KernelVer"
 CONFIGS="config config-%_target_cpu"
 %if "%base_flavour" == "std"
 CONFIGS="$CONFIGS config-std"
+%endif
+%if "%base_flavour" == "rt"
+CONFIGS="$CONFIGS config-rt"
 %endif
 %if "%sub_flavour" == "pae"
 CONFIGS="$CONFIGS config-pae"
