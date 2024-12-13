@@ -1,5 +1,5 @@
 Name: kernel-image-@kflavour@
-Release: alt1
+Release: alt2
 %define kernel_src_version	6.12
 %define kernel_base_version	6.12
 %define kernel_sublevel	.4
@@ -601,6 +601,9 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Fri Dec 13 2024 Vitaly Chikunov <vt@altlinux.org> 6.12.4-alt2
+- spec: Add -rt flavor to be built from the same source tree.
+
 * Mon Dec 09 2024 Kernel Bot <kernelbot@altlinux.org> 6.12.4-alt1
 - v6.12.4 (2024-12-09).
 - config-aarch64: add Qualcomm SoCs based devices support.
