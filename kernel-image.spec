@@ -126,7 +126,11 @@ BuildRequires: ccache
 %endif
 
 # for check
-%{?!_without_check:%{?!_disable_check:BuildRequires: rpm-build-vm-run >= 1.30 ltp >= 20210524-alt2 iproute2}}
+%{?!_without_check:%{?!_disable_check:
+BuildRequires: iproute2
+BuildRequires: ltp >= 20210524-alt2
+BuildRequires: rpm-build-vm-run >= 1.30
+}}
 
 %description
 This package contains the Linux kernel %kernel_base_version that is used to boot and run
