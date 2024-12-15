@@ -46,10 +46,12 @@ Patch0: %name-%version-%release.patch
 
 %if "%sub_flavour" == "pae"
 ExclusiveArch: i586
-%else %if "%base_flavour" == "rt"
+%else
+%if "%base_flavour" == "rt"
 ExclusiveArch: x86_64 aarch64
 %else
 ExclusiveArch: i586 x86_64 ppc64le aarch64 armh
+%endif
 %endif
 
 %define make_target bzImage
