@@ -1,8 +1,8 @@
 Name: kernel-image-@kflavour@
-Release: alt2
+Release: alt1
 %define kernel_src_version	6.12
 %define kernel_base_version	6.12
-%define kernel_sublevel	.5
+%define kernel_sublevel	.6
 %define kernel_extra_version	%nil
 %define kversion	%kernel_base_version%kernel_sublevel%kernel_extra_version
 %define kernel_latest	latest
@@ -613,6 +613,9 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Fri Dec 20 2024 Kernel Bot <kernelbot@altlinux.org> 6.12.6-alt1
+- v6.12.6 (2024-12-19).
+
 * Sun Dec 15 2024 Vitaly Chikunov <vt@altlinux.org> 6.12.5-alt2
 - spec: Fix ExclusiveArch conditionals.
 
