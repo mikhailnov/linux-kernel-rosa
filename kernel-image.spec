@@ -512,12 +512,13 @@ cp -a Documentation/* %buildroot%_docdir/kernel-doc-%base_flavour-%version/
 %check
 banner check
 # First boot-test no matter have KVM or not.
-timeout 300 vm-run --loglevel=debug --append=earlycon --heredoc <<-EOF
-	uname -a
+timeout 300 vm-run --loglevel=debug --append=earlycon \
 %if "%base_flavour" == "rt"
-	rtcheck -v
+	--tcg --mem=1G --cpu=1 --qemu="-rtc clock=vm -icount 0,sleep=on" \
+	'uname -a; rtcheck -v'
+%else
+	'uname -a'
 %endif
-EOF
 # Longer LTP tests only if there is KVM (which is present on all main arches).
 if ! timeout 999 vm-run --kvm=cond --klog --append=altha=1 \
 	runltp -f kernel-alt-vm -S skiplist-alt-vm -o out; then
