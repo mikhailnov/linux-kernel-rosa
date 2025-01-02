@@ -2,7 +2,7 @@ Name: kernel-image-@kflavour@
 Release: alt1
 %define kernel_src_version	6.12
 %define kernel_base_version	6.12
-%define kernel_sublevel	.7
+%define kernel_sublevel	.8
 %define kernel_extra_version	%nil
 %define kversion	%kernel_base_version%kernel_sublevel%kernel_extra_version
 %define kernel_latest	latest
@@ -614,6 +614,9 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Thu Jan 02 2025 Kernel Bot <kernelbot@altlinux.org> 6.12.8-alt1
+- v6.12.8 (2025-01-02).
+
 * Fri Dec 27 2024 Kernel Bot <kernelbot@altlinux.org> 6.12.7-alt1
 - v6.12.7 (2024-12-27).
 - config: Enable more zram compression backends.
