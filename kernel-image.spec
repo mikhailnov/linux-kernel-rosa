@@ -46,33 +46,32 @@ Patch0: %name-%version-%release.patch
 
 %if "%sub_flavour" == "pae"
 ExclusiveArch: i586
-%else
-%if "%base_flavour" == "rt"
+%elif "%base_flavour" == "rt"
 ExclusiveArch: x86_64 aarch64
 %else
 ExclusiveArch: i586 x86_64 ppc64le aarch64 armh
 %endif
-%endif
 
-%define make_target bzImage
 %ifarch ppc64le
 %define make_target vmlinux
-%endif
-%ifarch aarch64
+%elifarch aarch64
 %define make_target Image
-%endif
-%ifarch %arm
+%elifarch %arm
 %define make_target zImage
+%else
+%define make_target bzImage
 %endif
 
-%define image_path arch/%base_arch/boot/%make_target
 %ifarch ppc64le
 %define image_path %make_target.stripped
+%else
+%define image_path arch/%base_arch/boot/%make_target
 %endif
 
-%define arch_dir %base_arch
 %ifarch %ix86 x86_64
 %define arch_dir x86
+%else
+%define arch_dir %base_arch
 %endif
 
 %define kvm_modules_dir arch/%arch_dir/kvm
@@ -316,8 +315,7 @@ CONFIGS="$CONFIGS config-rt"
 %endif
 %if "%sub_flavour" == "pae"
 CONFIGS="$CONFIGS config-pae"
-%endif
-%if "%sub_flavour" == "debug"
+%elif "%sub_flavour" == "debug"
 CONFIGS="$CONFIGS config-debug"
 %endif
 scripts/kconfig/merge_config.sh -m $CONFIGS
