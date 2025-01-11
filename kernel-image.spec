@@ -311,9 +311,6 @@ echo "Building Kernel $KernelVer"
 
 #configuration construction
 CONFIGS="config config-%_target_cpu"
-%if "%base_flavour" == "std"
-CONFIGS="$CONFIGS config-std"
-%endif
 %if "%base_flavour" == "rt"
 CONFIGS="$CONFIGS config-rt"
 %endif
