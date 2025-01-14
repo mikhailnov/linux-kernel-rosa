@@ -76,6 +76,15 @@ ExclusiveArch: i586 x86_64 ppc64le aarch64 armh
 
 %define kvm_modules_dir arch/%arch_dir/kvm
 
+# On some architectures (at least ppc64le) kernel image is ELF and
+# eu-findtextrel will fail if it is not a DSO or PIE.
+%add_verify_elf_skiplist /boot/vmlinuz-*
+
+%define _unpackaged_files_terminate_build 1
+%ifnarch ppc64le
+%define _stripped_files_terminate_build 1
+%endif
+
 ExclusiveOS: Linux
 
 %if "%sub_flavour" == "def"
@@ -315,8 +324,9 @@ CONFIGS="$CONFIGS config-rt"
 %endif
 %if "%sub_flavour" == "pae"
 CONFIGS="$CONFIGS config-pae"
-%elif "%sub_flavour" == "debug"
-CONFIGS="$CONFIGS config-debug"
+%elif "%sub_flavour" == "kasan"
+CONFIGS="$CONFIGS config-kasan"
+%undefine _stripped_files_terminate_build
 %endif
 scripts/kconfig/merge_config.sh -m $CONFIGS
 
@@ -493,15 +503,6 @@ truncate -s0 %buildroot%modules_dir/modules.*.bin
 # install documentation
 install -d %buildroot%_docdir/kernel-doc-%base_flavour-%version/
 cp -a Documentation/* %buildroot%_docdir/kernel-doc-%base_flavour-%version/
-%endif
-
-# On some architectures (at least ppc64le) kernel image is ELF and
-# eu-findtextrel will fail if it is not a DSO or PIE.
-%add_verify_elf_skiplist /boot/vmlinuz-*
-
-%define _unpackaged_files_terminate_build 1
-%ifnarch ppc64le
-%define _stripped_files_terminate_build 1
 %endif
 
 %check
