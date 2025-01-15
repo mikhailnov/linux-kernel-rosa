@@ -508,7 +508,7 @@ cp -a Documentation/* %buildroot%_docdir/kernel-doc-%base_flavour-%version/
 %check
 banner check
 # First boot-test no matter have KVM or not.
-timeout 300 vm-run --loglevel=debug --append=earlycon \
+timeout 300 vm-run --loglevel=debug --append='earlycon oops=panic panic_on_warn=1' \
 %if "%base_flavour" == "rt"
 	--tcg --mem=1G --cpu=1 --qemu="-rtc clock=vm -icount 0,sleep=on" \
 	'uname -a; rtcheck -v'
@@ -516,7 +516,7 @@ timeout 300 vm-run --loglevel=debug --append=earlycon \
 	'uname -a'
 %endif
 # Longer LTP tests only if there is KVM (which is present on all main arches).
-if ! timeout 999 vm-run --kvm=cond --klog --append=altha=1 \
+if ! timeout 999 vm-run --kvm=cond --klog --append='altha=1 oops=panic panic_on_warn=1' \
 	runltp -f kernel-alt-vm -S skiplist-alt-vm -o out; then
 	cat /usr/lib/ltp/output/LTP_RUN_ON-out.failed >&2
 	sed '/TINFO/i\\' /usr/lib/ltp/output/out | awk '/TFAIL/' RS= >&2
