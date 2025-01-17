@@ -16,6 +16,7 @@
 #include <linux/of_device.h>
 #include <linux/pci.h>
 #include <linux/pci-ecam.h>
+#include <linux/of_address.h>
 #include <linux/platform_device.h>
 #include <linux/regmap.h>
 
@@ -42,6 +43,14 @@ struct baikal_pcie_acpi_data {
 static const struct baikal_pcie_of_data bm1000_pcie_rc_of_data;
 static const struct baikal_pcie_of_data bs1000_pcie_rc_of_data;
 #endif
+
+static const struct regmap_config bm1000_pcie_syscon_regmap_config = {
+	.reg_bits = 32,
+	.val_bits = 32,
+	.reg_stride = 4,
+	.fast_io = true,
+	.use_raw_spinlock = true,
+};
 
 struct baikal_pcie_of_data {
 	enum dw_pcie_device_mode	mode;
@@ -186,18 +195,38 @@ static int bm1000_get_resources(struct platform_device *pdev,
 	struct bm1000_pcie *bm = platform_get_drvdata(pdev);
 	struct device *dev = pci->dev;
 	struct resource *res;
+	void __iomem *gpr_base;
+	struct device_node *gpr_syscon_node;
 
 	bm->pci = pci;
 	bm->gpr_offset = 0;
-	bm->gpr = syscon_regmap_lookup_by_compatible("baikal,bm1000-pcie-gpr");
-	if (IS_ERR(bm->gpr)) {
+	gpr_syscon_node = of_find_compatible_node(NULL, NULL, "baikal,bm1000-pcie-gpr");
+	if (!gpr_syscon_node) {
 		dev_warn(dev, "failed to find PCIe GPR registers, trying LCRU\n");
-		bm->gpr = syscon_regmap_lookup_by_phandle(dev->of_node, "baikal,pcie-lcru");
-		if (IS_ERR(bm->gpr)) {
+		gpr_syscon_node = of_parse_phandle(dev->of_node, "baikal,pcie-lcru", 0);
+		if (!gpr_syscon_node) {
 			dev_err(dev, "failed to find PCIe LCRU registers\n");
-			return PTR_ERR(bm->gpr);
+			return -EINVAL;
 		}
 		bm->gpr_offset = BM1000_PCIE_GPR_OFFSET;
+	}
+	if (!of_device_is_compatible(gpr_syscon_node, "syscon")) {
+			dev_err(dev, "failed to find PCIe GPR registers\n");
+			of_node_put(gpr_syscon_node);
+			return -EINVAL;
+	}
+
+	gpr_base = of_iomap(gpr_syscon_node, 0);
+	of_node_put(gpr_syscon_node);
+	if (!gpr_base) {
+		dev_err(dev, "failed to remap PCIe GPR registers\n");
+		return -EINVAL;
+	}
+
+	bm->gpr = devm_regmap_init_mmio(dev, gpr_base, &bm1000_pcie_syscon_regmap_config);
+	if (IS_ERR(bm->gpr)) {
+		dev_err(dev, "failed to init regmap for PCIe GPR registers\n");
+		return PTR_ERR(bm->gpr);
 	}
 
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
@@ -1102,12 +1131,6 @@ static int bm1000_pcie_get_irq_acpi(struct device *dev,
 }
 
 static struct regmap *bm1000_regmap;
-
-static const struct regmap_config bm1000_pcie_syscon_regmap_config = {
-	.reg_bits = 32,
-	.val_bits = 32,
-	.reg_stride = 4
-};
 
 static struct regmap *bm1000_pcie_get_gpr_acpi(struct bm1000_pcie *bm)
 {
