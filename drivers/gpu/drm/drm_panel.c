@@ -313,6 +313,43 @@ int drm_panel_get_modes(struct drm_panel *panel,
 }
 EXPORT_SYMBOL(drm_panel_get_modes);
 
+/**
+ * fwnode_drm_find_panel - look up a panel using a fwnode
+ * @fwnode: fwnode of the panel
+ *
+ * Searches the set of registered panels for one that matches the given fwnode.
+ * If a matching panel is found, return a pointer to it.
+ *
+ * Return: A pointer to the panel registered for the specified fwnode or
+ * an ERR_PTR() if no panel matching the fwnode can be found.
+ *
+ * Possible error codes returned by this function:
+ *
+ * - EPROBE_DEFER: the panel device has not been probed yet, and the caller
+ *   should retry later
+ * - ENODEV: the device is not available
+ */
+struct drm_panel *fwnode_drm_find_panel(const struct fwnode_handle *fwnode)
+{
+	struct drm_panel *panel;
+
+	if (!fwnode_device_is_available(fwnode))
+		return ERR_PTR(-ENODEV);
+
+	mutex_lock(&panel_lock);
+
+	list_for_each_entry(panel, &panel_list, list) {
+		if (panel->dev->fwnode == fwnode) {
+			mutex_unlock(&panel_lock);
+			return panel;
+		}
+	}
+
+	mutex_unlock(&panel_lock);
+	return ERR_PTR(-EPROBE_DEFER);
+}
+EXPORT_SYMBOL(fwnode_drm_find_panel);
+
 #ifdef CONFIG_OF
 /**
  * of_drm_find_panel - look up a panel using a device tree node

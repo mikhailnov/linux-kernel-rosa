@@ -3518,6 +3518,16 @@ struct dw_hdmi *dw_hdmi_probe(struct platform_device *pdev,
 		audio.irq = irq;
 		audio.hdmi = hdmi;
 		audio.get_eld = hdmi_audio_get_eld;
+		if (of_property_read_u32(np, "ahb-audio-regshift", &audio.regshift) != 0) {
+			audio.regshift = 0;
+		} else {
+			dev_dbg(dev, "set audio.regshift=%u from DTB\n", audio.regshift);
+		}
+		if (of_device_is_compatible(np, "baikal,hdmi")) {
+			audio.regshift = 2;
+			dev_info(dev, "setting audio.regshift=%d for BE-M1000 SoC\n",
+				 audio.regshift);
+		}
 		hdmi->enable_audio = dw_hdmi_ahb_audio_enable;
 		hdmi->disable_audio = dw_hdmi_ahb_audio_disable;
 
@@ -3639,6 +3649,15 @@ void dw_hdmi_resume(struct dw_hdmi *hdmi)
 	dw_hdmi_init_hw(hdmi);
 }
 EXPORT_SYMBOL_GPL(dw_hdmi_resume);
+
+struct drm_bridge *dw_hdmi_get_bridge(struct dw_hdmi *hdmi)
+{
+	if (IS_ERR_OR_NULL(hdmi))
+		return NULL;
+
+	return &hdmi->bridge;
+}
+EXPORT_SYMBOL_GPL(dw_hdmi_get_bridge);
 
 MODULE_AUTHOR("Sascha Hauer <s.hauer@pengutronix.de>");
 MODULE_AUTHOR("Andy Yan <andy.yan@rock-chips.com>");

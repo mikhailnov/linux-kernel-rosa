@@ -43,6 +43,7 @@ obj-$(CONFIG_SND_SOC)	+= adi/
 obj-$(CONFIG_SND_SOC)	+= amd/
 obj-$(CONFIG_SND_SOC)	+= atmel/
 obj-$(CONFIG_SND_SOC)	+= au1x/
+obj-$(CONFIG_SND_SOC)	+= baikal/
 obj-$(CONFIG_SND_SOC)	+= bcm/
 obj-$(CONFIG_SND_SOC)	+= cirrus/
 obj-$(CONFIG_SND_SOC)	+= dwc/

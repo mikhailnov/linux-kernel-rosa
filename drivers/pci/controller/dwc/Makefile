@@ -1,4 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0
+obj-$(CONFIG_PCIE_BAIKAL) += pcie-baikal.o
+pcie-baikal-objs := pcie-baikal-core.o \
+                    pcie-baikal-tune.o
+
 obj-$(CONFIG_PCIE_DW) += pcie-designware.o
 obj-$(CONFIG_PCIE_DW_HOST) += pcie-designware-host.o
 obj-$(CONFIG_PCIE_DW_EP) += pcie-designware-ep.o
@@ -45,6 +49,7 @@ obj-$(CONFIG_PCI_HISI) += pcie-hisi.o
 ifdef CONFIG_ACPI
 ifdef CONFIG_PCI_QUIRKS
 obj-$(CONFIG_ARM64) += pcie-al.o
+obj-$(CONFIG_ARM64) += pcie-baikal-acpi.o
 obj-$(CONFIG_ARM64) += pcie-hisi.o
 obj-$(CONFIG_ARM64) += pcie-tegra194-acpi.o
 endif

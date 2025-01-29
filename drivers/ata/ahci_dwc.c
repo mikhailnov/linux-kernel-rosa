@@ -468,10 +468,15 @@ static struct ahci_dwc_plat_data ahci_bt1_plat = {
 	.init = ahci_bt1_init,
 };
 
+static struct ahci_dwc_plat_data ahci_bm1000_plat = {
+	.pflags = AHCI_PLATFORM_GET_RESETS | AHCI_PLATFORM_RST_TRIGGER,
+};
+
 static const struct of_device_id ahci_dwc_of_match[] = {
 	{ .compatible = "snps,dwc-ahci", &ahci_dwc_plat },
 	{ .compatible = "snps,spear-ahci", &ahci_dwc_plat },
 	{ .compatible = "baikal,bt1-ahci", &ahci_bt1_plat },
+	{ .compatible = "baikal,bm1000-ahci", &ahci_bm1000_plat },
 	{},
 };
 MODULE_DEVICE_TABLE(of, ahci_dwc_of_match);
