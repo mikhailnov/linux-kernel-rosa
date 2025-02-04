@@ -150,7 +150,7 @@ these drivers are built separately from the kernel; they are available
 in separate packages (kernel-modules-*-%flavour).
 
 %package -n kernel-image-domU-%flavour
-Summary: Uncompressed linux kernel for XEN domU boot 
+Summary: Uncompressed linux kernel for XEN domU boot
 Group: System/Kernel and hardware
 Requires(pre,postun): kmod
 
@@ -240,7 +240,7 @@ If possible, try to use glibc-kernheaders instead of this package.
 
 %package -n kernel-headers-modules-%flavour
 Summary: Headers and other files needed for building kernel modules
-Group: Development/Kernel 
+Group: Development/Kernel
 Requires: gcc%kgcc_version
 AutoReqProv: nocpp
 %if "%sub_flavour" == "def"
