@@ -282,7 +282,7 @@ static int kiosk_bprm_check_security(struct linux_binprm *bprm)
 	if (kiosk_mode == KIOSK_PERMISSIVE)
 		return 0;
 
-	if (cur_uid >= 500) {
+	if (cur_uid >= 1000) {
 		bprm->secureexec = 1;
 		if (bprm->executable != bprm->interpreter)
 			return 0;
