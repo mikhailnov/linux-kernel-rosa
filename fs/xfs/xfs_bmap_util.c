@@ -1449,7 +1449,7 @@ xfs_swap_extent_rmap(
 						XFS_DATA_FORK,
 						XFS_IEXT_SWAP_RMAP_CNT);
 				if (error == -EFBIG)
-					error = xfs_iext_count_upgrade(tp, ip,
+					error = xfs_iext_count_upgrade(tp, tip,
 							XFS_IEXT_SWAP_RMAP_CNT);
 				if (error)
 					goto out;
