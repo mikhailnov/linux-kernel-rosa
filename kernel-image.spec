@@ -613,7 +613,7 @@ check-pesign-helper
 * Mon Apr 07 2025 Kernel Bot <kernelbot@altlinux.org> 6.12.22-alt1
 - v6.12.22 (2025-04-07).
 - config: add prefix DISPLAY for CONFIG_DRM_DP_CEC, DRM_DP_AUX_CHARDEV.
-- config: Enable CONFIG_SND_SOC_INTEL_AVS=n (ALT#53634).
+- config: Enable CONFIG_SND_SOC_INTEL_AVS=m (ALT#53634).
 
 * Sat Mar 29 2025 Kernel Bot <kernelbot@altlinux.org> 6.12.21-alt1
 - v6.12.21 (2025-03-28).
