@@ -82,7 +82,7 @@ void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 	/* set N=1, get RIRB response interrupt for new entry */
 	snd_hdac_chip_writew(bus, RINTCNT, 1);
 	rirbctl = AZX_RBCTL_DMA_EN | AZX_RBCTL_IRQ_EN;
-	if (of_device_is_compatible(bus->dev->of_node, "be,cw-hda")) {
+	if (bus->response_irq_broken || of_device_is_compatible(bus->dev->of_node, "be,cw-hda")) {
 		/* response IRQ does not work in Baikal-M HDA controller */
 		rirbctl = AZX_RBCTL_DMA_EN;
 	}
@@ -159,6 +159,8 @@ int snd_hdac_bus_send_cmd(struct hdac_bus *bus, unsigned int val)
 
 	spin_lock_irq(&bus->reg_lock);
 
+	if (bus->baikal_codec_addr_quirk)
+		val = val + 0x10000000;
 	bus->last_cmd[azx_command_addr(val)] = val;
 
 	/* add command to corb */
