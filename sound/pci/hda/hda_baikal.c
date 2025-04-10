@@ -376,7 +376,7 @@ static int hda_baikal_create(struct snd_card *card,
 	chip->jackpoll_interval = msecs_to_jiffies(100); /* 100ms */
 
 	chip->single_cmd = false;
-	chip->snoop = true;
+	chip->snoop = false;
 
 	chip->get_position[0] = chip->get_position[1] = azx_get_pos_lpib;
 	chip->get_delay[0] = chip->get_delay[1] = azx_get_delay_from_lpib;
