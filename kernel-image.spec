@@ -537,7 +537,7 @@ check-pesign-helper
 %modules_dir/modules.dep
 %modules_dir/modules.devname
 %modules_dir/modules.order
-%modules_dir/modules.softdep
+%modules_dir/modules.*dep
 %modules_dir/modules.symbols
 %ghost %modules_dir/modules.*.bin
 %defattr(0600,root,root,0700)
