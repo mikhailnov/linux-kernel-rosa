@@ -1,5 +1,5 @@
 Name: kernel-image-@kflavour@
-Release: alt1
+Release: alt2
 %define kernel_src_version	6.12
 %define kernel_base_version	6.12
 %define kernel_sublevel	.30
@@ -610,6 +610,11 @@ check-pesign-helper
 %files checkinstall
 
 %changelog
+* Fri May 23 2025 Vitaly Chikunov <vt@altlinux.org> 6.12.30-alt2
+- config: enable more led-trigger configs config-aarch64: enable config
+  of mchp23 spi sram.
+- spec: Fix packaging modules.weakdep appeared after kmod update.
+
 * Thu May 22 2025 Kernel Bot <kernelbot@altlinux.org> 6.12.30-alt1
 - v6.12.30 (2025-05-22).
 
