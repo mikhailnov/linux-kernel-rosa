@@ -316,6 +316,7 @@ KernelVer=%kversion-%flavour-%krelease
 echo "Building Kernel $KernelVer"
 
 %make_build mrproper
+make -s kernelversion | grep -Fx '%kversion-%flavour-%krelease'
 
 #configuration construction
 CONFIGS="config config-%_target_cpu"
@@ -331,6 +332,7 @@ CONFIGS="$CONFIGS config-kasan"
 scripts/kconfig/merge_config.sh -m $CONFIGS
 
 %make_build oldconfig
+make -s kernelrelease | grep -Fx '%kversion-%flavour-%krelease'
 %make_build %make_target || {
 	%make %make_target V=1
 	exit 1
