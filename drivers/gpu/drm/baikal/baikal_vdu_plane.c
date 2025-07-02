@@ -51,29 +51,15 @@ static void baikal_vdu_primary_plane_atomic_update(struct drm_plane *plane,
 	 * to low bit as you read left to right.
 	 */
 	switch (fb->format->format) {
-	case DRM_FORMAT_BGR888:
-		cntl |= CR1_BPP24 | CR1_FBP | CR1_BGR;
-		break;
 	case DRM_FORMAT_RGB888:
 		cntl |= CR1_BPP24 | CR1_FBP;
-		break;
-	case DRM_FORMAT_ABGR8888:
-	case DRM_FORMAT_XBGR8888:
-		cntl |= CR1_BPP24 | CR1_BGR;
 		break;
 	case DRM_FORMAT_ARGB8888:
 	case DRM_FORMAT_XRGB8888:
 		cntl |= CR1_BPP24;
 		break;
-	case DRM_FORMAT_BGR565:
-		cntl |= CR1_BPP16_565 | CR1_BGR;
-		break;
 	case DRM_FORMAT_RGB565:
 		cntl |= CR1_BPP16_565;
-		break;
-	case DRM_FORMAT_ABGR1555:
-	case DRM_FORMAT_XBGR1555:
-		cntl |= CR1_BPP16_555 | CR1_BGR;
 		break;
 	case DRM_FORMAT_ARGB1555:
 	case DRM_FORMAT_XRGB1555:
@@ -112,16 +98,10 @@ int baikal_vdu_primary_plane_init(struct baikal_vdu_private *priv)
 	struct drm_device *drm = priv->drm;
 	struct drm_plane *plane = &priv->primary;
 	static const u32 formats[] = {
-		DRM_FORMAT_BGR888,
 		DRM_FORMAT_RGB888,
-		DRM_FORMAT_ABGR8888,
-		DRM_FORMAT_XBGR8888,
 		DRM_FORMAT_ARGB8888,
 		DRM_FORMAT_XRGB8888,
-		DRM_FORMAT_BGR565,
 		DRM_FORMAT_RGB565,
-		DRM_FORMAT_ABGR1555,
-		DRM_FORMAT_XBGR1555,
 		DRM_FORMAT_ARGB1555,
 		DRM_FORMAT_XRGB1555,
 	};
