@@ -1037,7 +1037,7 @@ static int do_platform_entry(const char *filename,
 			     void *symval, char *alias)
 {
 	DEF_FIELD_ADDR(symval, platform_device_id, name);
-	sprintf(alias, PLATFORM_MODULE_PREFIX "%s", *name);
+	sprintf(alias, PLATFORM_MODULE_PREFIX "%.*s", PLATFORM_NAME_SIZE, *name);
 	return 1;
 }
 
