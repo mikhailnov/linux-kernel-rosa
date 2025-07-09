@@ -10709,7 +10709,7 @@ CONFIG_STACKTRACE=y
 # CONFIG_DEBUG_PLIST is not set
 # CONFIG_DEBUG_SG is not set
 # CONFIG_DEBUG_NOTIFIERS is not set
-# CONFIG_BUG_ON_DATA_CORRUPTION is not set
+CONFIG_BUG_ON_DATA_CORRUPTION=y
 # end of Debug kernel data structures
 
 # CONFIG_DEBUG_CREDENTIALS is not set
