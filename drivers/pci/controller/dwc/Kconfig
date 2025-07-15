@@ -200,6 +200,18 @@ config PCIE_ARMADA_8K
 	  DesignWare hardware and therefore the driver re-uses the
 	  DesignWare core functions to implement the driver.
 
+config PCI_BAIKAL
+	bool "Baikal SoC PCIe controller"
+	depends on ARCH_BAIKAL
+	depends on OF && HAS_IOMEM
+	select PCIE_DW_HOST
+	select PCI_MSI_IRQ_DOMAIN
+	select PCI_QUIRKS if ACPI
+	help
+	  Enables support for the PCIe controller in the Baikal SoC. There are
+	  three instances of PCIe controller in Baikal-M. Two of the controllers
+	  support PCIe 3.0 x4 and the remaining one supports PCIe 3.0 x8.
+
 config PCIE_TEGRA194
 	tristate
 

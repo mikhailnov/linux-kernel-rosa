@@ -140,7 +140,7 @@ static void remove_vma(struct vm_area_struct *vma, bool unreachable)
 	if (vma->vm_ops && vma->vm_ops->close)
 		vma->vm_ops->close(vma);
 	if (vma->vm_file)
-		fput(vma->vm_file);
+		vma_fput(vma);
 	mpol_put(vma_policy(vma));
 	if (unreachable)
 		__vm_area_free(vma);
@@ -554,7 +554,7 @@ again:
 		if (vp->file) {
 			uprobe_munmap(vp->remove, vp->remove->vm_start,
 				      vp->remove->vm_end);
-			fput(vp->file);
+			vma_fput(vp->vma);
 		}
 		if (vp->remove->anon_vma)
 			anon_vma_merge(vp->vma, vp->remove);
@@ -2392,7 +2392,7 @@ int __split_vma(struct vma_iterator *vmi, struct vm_area_struct *vma,
 		goto out_free_mpol;
 
 	if (new->vm_file)
-		get_file(new->vm_file);
+		vma_get_file(new);
 
 	if (new->vm_ops && new->vm_ops->open)
 		new->vm_ops->open(new);
@@ -2809,7 +2809,7 @@ cannot_expand:
 				 * and cause general protection fault
 				 * ultimately.
 				 */
-				fput(vma->vm_file);
+				vma_fput(vma);
 				vm_area_free(vma);
 				vma = merge;
 				/* Update vm_flags to pick up the change. */
@@ -2904,7 +2904,7 @@ close_and_free_vma:
 
 	if (file || vma->vm_file) {
 unmap_and_free_vma:
-		fput(vma->vm_file);
+		vma_fput(vma);
 		vma->vm_file = NULL;
 
 		vma_iter_set(&vmi, vma->vm_end);
@@ -2966,6 +2966,9 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 	unsigned long populate = 0;
 	unsigned long ret = -EINVAL;
 	struct file *file;
+#if IS_ENABLED(CONFIG_AUFS_FS)
+	struct file *prfile;
+#endif
 
 	pr_warn_once("%s (%d) uses deprecated remap_file_pages() syscall. See Documentation/mm/remap_file_pages.rst.\n",
 		     current->comm, current->pid);
@@ -3024,10 +3027,34 @@ SYSCALL_DEFINE5(remap_file_pages, unsigned long, start, unsigned long, size,
 	if (vma->vm_flags & VM_LOCKED)
 		flags |= MAP_LOCKED;
 
+#if IS_ENABLED(CONFIG_AUFS_FS)
+	vma_get_file(vma);
+	file = vma->vm_file;
+	prfile = vma->vm_prfile;
+	ret = do_mmap(vma->vm_file, start, size,
+			prot, flags, /*vm_flags*/0, pgoff, &populate, NULL);
+	if (!IS_ERR_VALUE(ret) && file && prfile) {
+		struct vm_area_struct *new_vma;
+
+		new_vma = find_vma(mm, ret);
+		if (!new_vma->vm_prfile)
+			new_vma->vm_prfile = prfile;
+		if (prfile)
+			get_file(prfile);
+	}
+	/*
+	 * two fput()s instead of vma_fput(vma),
+	 * coz vma may not be available anymore.
+	 */
+	fput(file);
+	if (prfile)
+		fput(prfile);
+#else
 	file = get_file(vma->vm_file);
 	ret = do_mmap(vma->vm_file, start, size,
 			prot, flags, 0, pgoff, &populate, NULL);
 	fput(file);
+#endif /* CONFIG_AUFS_FS */
 out:
 	mmap_write_unlock(mm);
 	if (populate)
@@ -3378,7 +3405,7 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 		if (anon_vma_clone(new_vma, vma))
 			goto out_free_mempol;
 		if (new_vma->vm_file)
-			get_file(new_vma->vm_file);
+			vma_get_file(new_vma);
 		if (new_vma->vm_ops && new_vma->vm_ops->open)
 			new_vma->vm_ops->open(new_vma);
 		if (vma_link(mm, new_vma))
@@ -3392,7 +3419,7 @@ out_vma_link:
 		new_vma->vm_ops->close(new_vma);
 
 	if (new_vma->vm_file)
-		fput(new_vma->vm_file);
+		vma_fput(new_vma);
 
 	unlink_anon_vmas(new_vma);
 out_free_mempol:

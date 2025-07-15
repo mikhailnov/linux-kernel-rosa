@@ -102,6 +102,7 @@ static inline void i2s_enable_irqs(struct dw_i2s_dev *dev, u32 stream,
 
 static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 {
+	unsigned int rxor_count;
 	struct dw_i2s_dev *dev = dev_id;
 	bool irq_valid = false;
 	u32 isr[4];
@@ -138,9 +139,13 @@ static irqreturn_t i2s_irq_handler(int irq, void *dev_id)
 			irq_valid = true;
 		}
 
-		/* Error Handling: TX */
+		/* Error Handling: RX */
 		if (isr[i] & ISR_RXFO) {
-			dev_err_ratelimited(dev->dev, "RX overrun (ch_id=%d)\n", i);
+			rxor_count = READ_ONCE(dev->rx_overrun_count);
+			if (!(rxor_count & 0x3ff))
+				dev_err_ratelimited(dev->dev, "RX overrun (ch_id=%d)\n", i);
+			rxor_count++;
+			WRITE_ONCE(dev->rx_overrun_count, rxor_count);
 			irq_valid = true;
 		}
 	}
@@ -920,7 +925,7 @@ static int dw_i2s_probe(struct platform_device *pdev)
 	const struct i2s_platform_data *pdata = pdev->dev.platform_data;
 	struct dw_i2s_dev *dev;
 	struct resource *res;
-	int ret, irq;
+	int ret, irq, irq_count;
 	struct snd_soc_dai_driver *dw_i2s_dai;
 	const char *clk_id;
 
@@ -958,10 +963,18 @@ static int dw_i2s_probe(struct platform_device *pdev)
 			return ret;
 	}
 
-	irq = platform_get_irq_optional(pdev, 0);
-	if (irq >= 0) {
+	irq_count = platform_irq_count(pdev);
+	if (irq_count < 0) /* - EPROBE_DEFER */
+		return irq_count;
+
+	for (unsigned i = 0; i < (unsigned)irq_count; i++) {
+		irq = platform_get_irq(pdev, i);
+		if (irq < 0)
+			return irq;
+
 		ret = devm_request_irq(&pdev->dev, irq, i2s_irq_handler, 0,
 				pdev->name, dev);
+
 		if (ret < 0) {
 			dev_err(&pdev->dev, "failed to request irq\n");
 			goto err_assert_reset;

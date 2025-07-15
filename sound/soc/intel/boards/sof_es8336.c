@@ -332,6 +332,25 @@ static int sof_es8336_quirk_cb(const struct dmi_system_id *id)
  * if the topology file is modified as well.
  */
 static const struct dmi_system_id sof_es8336_quirk_table[] = {
+	/* Aquarius NS685U R11 (https://linux-hardware.org/?probe=339dc3db60) */
+	{
+		.callback = sof_es8336_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Aquarius"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "NS685U R11"),
+		},
+		.driver_data = (void *)(SOF_ES8336_JD_INVERTED)
+	},
+	/* Aquarius NS685U (https://linux-hardware.org/?probe=988e1b3035) */
+	{
+		.callback = sof_es8336_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "Aquarius"),
+			/* it is not a typo! see dmidecode by the link above */
+			DMI_MATCH(DMI_PRODUCT_NAME, "win10 HOME rs10"),
+		},
+		.driver_data = (void *)(SOF_ES8336_JD_INVERTED)
+	},
 	{
 		.callback = sof_es8336_quirk_cb,
 		.matches = {
@@ -339,6 +358,65 @@ static const struct dmi_system_id sof_es8336_quirk_table[] = {
 			DMI_MATCH(DMI_BOARD_NAME, "WN1"),
 		},
 		.driver_data = (void *)(SOF_ES8336_SPEAKERS_EN_GPIO1_QUIRK)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.ident = "pa-enable ACPI deviant",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "3Logic Group"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Graviton N15i"),
+		},
+		.driver_data = (void *)(SOF_ES8336_SSP_CODEC(0) |
+					SOF_ES8336_SPEAKERS_EN_GPIO1_QUIRK)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.ident = "pa-enable ACPI deviant",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "3Logic Group"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "Lime 15.6"),
+		},
+		.driver_data = (void *)(SOF_ES8336_SSP_CODEC(0) |
+					SOF_ES8336_SPEAKERS_EN_GPIO1_QUIRK)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.ident = "pa-enable ACPI deviant",
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "ICL"),
+			DMI_MATCH(DMI_BOARD_NAME, "Si16"),
+		},
+		.driver_data = (void *)(SOF_ES8336_SSP_CODEC(0) |
+					SOF_ES8336_SPEAKERS_EN_GPIO1_QUIRK)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.ident = "pa-enable ACPI deviant",
+		.matches = {
+			/* market name: HIPER TeachBook HTHLP-04R */
+			DMI_MATCH(DMI_SYS_VENDOR, "mtech"),
+			DMI_MATCH(DMI_PRODUCT_NAME, "MTL1578"),
+		},
+		.driver_data = (void *)(SOF_ES8336_SSP_CODEC(0) |
+					SOF_ES8336_SPEAKERS_EN_GPIO1_QUIRK)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.matches = {
+			DMI_MATCH(DMI_SYS_VENDOR, "CHUWI Innovation And Technology"),
+			DMI_MATCH(DMI_BOARD_NAME, "Hi10 X"),
+		},
+		.driver_data = (void *)SOF_ES8336_SSP_CODEC(2)
+	},
+	{
+		.callback = sof_es8336_quirk_cb,
+		.matches = {
+			/* market name: Kraftway ACCORD S15T */
+			DMI_MATCH(DMI_SYS_VENDOR, "Kraftway"),
+			DMI_MATCH(DMI_BOARD_NAME, "S15T"),
+		},
+		.driver_data = (void *)(SOF_ES8336_SSP_CODEC(0) |
+					SOF_ES8336_JD_INVERTED)
 	},
 	{
 		.callback = sof_es8336_quirk_cb,

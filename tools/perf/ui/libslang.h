@@ -18,7 +18,7 @@
 #ifdef HAVE_SLANG_INCLUDE_SUBDIR
 #include <slang/slang.h>
 #else
-#include <slang.h>
+#include <slang/slang.h>
 #endif
 
 #define SL_KEY_UNTAB 0x1000

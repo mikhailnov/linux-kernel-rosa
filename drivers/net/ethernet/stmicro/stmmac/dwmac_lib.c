@@ -32,6 +32,7 @@ void dwmac_enable_dma_transmission(void __iomem *ioaddr)
 {
 	writel(1, ioaddr + DMA_XMT_POLL_DEMAND);
 }
+EXPORT_SYMBOL_GPL(dwmac_enable_dma_transmission);
 
 void dwmac_enable_dma_irq(struct stmmac_priv *priv, void __iomem *ioaddr,
 			  u32 chan, bool rx, bool tx)
@@ -45,6 +46,7 @@ void dwmac_enable_dma_irq(struct stmmac_priv *priv, void __iomem *ioaddr,
 
 	writel(value, ioaddr + DMA_INTR_ENA);
 }
+EXPORT_SYMBOL_GPL(dwmac_enable_dma_irq);
 
 void dwmac_disable_dma_irq(struct stmmac_priv *priv, void __iomem *ioaddr,
 			   u32 chan, bool rx, bool tx)
@@ -58,6 +60,7 @@ void dwmac_disable_dma_irq(struct stmmac_priv *priv, void __iomem *ioaddr,
 
 	writel(value, ioaddr + DMA_INTR_ENA);
 }
+EXPORT_SYMBOL_GPL(dwmac_disable_dma_irq);
 
 void dwmac_dma_start_tx(struct stmmac_priv *priv, void __iomem *ioaddr,
 			u32 chan)
@@ -66,6 +69,7 @@ void dwmac_dma_start_tx(struct stmmac_priv *priv, void __iomem *ioaddr,
 	value |= DMA_CONTROL_ST;
 	writel(value, ioaddr + DMA_CONTROL);
 }
+EXPORT_SYMBOL_GPL(dwmac_dma_start_tx);
 
 void dwmac_dma_stop_tx(struct stmmac_priv *priv, void __iomem *ioaddr, u32 chan)
 {
@@ -73,6 +77,7 @@ void dwmac_dma_stop_tx(struct stmmac_priv *priv, void __iomem *ioaddr, u32 chan)
 	value &= ~DMA_CONTROL_ST;
 	writel(value, ioaddr + DMA_CONTROL);
 }
+EXPORT_SYMBOL_GPL(dwmac_dma_stop_tx);
 
 void dwmac_dma_start_rx(struct stmmac_priv *priv, void __iomem *ioaddr,
 			u32 chan)
@@ -81,6 +86,7 @@ void dwmac_dma_start_rx(struct stmmac_priv *priv, void __iomem *ioaddr,
 	value |= DMA_CONTROL_SR;
 	writel(value, ioaddr + DMA_CONTROL);
 }
+EXPORT_SYMBOL_GPL(dwmac_dma_start_rx);
 
 void dwmac_dma_stop_rx(struct stmmac_priv *priv, void __iomem *ioaddr, u32 chan)
 {
@@ -88,6 +94,7 @@ void dwmac_dma_stop_rx(struct stmmac_priv *priv, void __iomem *ioaddr, u32 chan)
 	value &= ~DMA_CONTROL_SR;
 	writel(value, ioaddr + DMA_CONTROL);
 }
+EXPORT_SYMBOL_GPL(dwmac_dma_stop_rx);
 
 #ifdef DWMAC_DMA_DEBUG
 static void show_tx_process_state(unsigned int status)
@@ -239,6 +246,7 @@ int dwmac_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(dwmac_dma_interrupt);
 
 void dwmac_dma_flush_tx_fifo(void __iomem *ioaddr)
 {

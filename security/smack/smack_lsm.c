@@ -66,7 +66,21 @@ static DEFINE_MUTEX(smack_ipv6_lock);
 static LIST_HEAD(smk_ipv6_port_list);
 #endif
 struct kmem_cache *smack_rule_cache;
-int smack_enabled __initdata;
+
+/* Boot time disable flag */
+int smack_enabled __ro_after_init = 0;
+module_param_named(enabled, smack_enabled, int, 0444);
+
+static int __init smack_enabled_setup(char *str)
+{
+	unsigned long enabled;
+	int error = kstrtoul(str, 0, &enabled);
+	if (!error)
+		smack_enabled = enabled ? 1 : 0;
+	return 1;
+}
+
+__setup("smack=", smack_enabled_setup);
 
 #define A(s) {"smack"#s, sizeof("smack"#s) - 1, Opt_##s}
 static struct {
@@ -5154,7 +5168,6 @@ static __init int smack_init(void)
 	 * Register with LSM
 	 */
 	security_add_hooks(smack_hooks, ARRAY_SIZE(smack_hooks), "smack");
-	smack_enabled = 1;
 
 	pr_info("Smack:  Initializing.\n");
 #ifdef CONFIG_SECURITY_SMACK_NETFILTER
@@ -5180,6 +5193,7 @@ static __init int smack_init(void)
 DEFINE_LSM(smack) = {
 	.name = "smack",
 	.flags = LSM_FLAG_LEGACY_MAJOR | LSM_FLAG_EXCLUSIVE,
+	.enabled = &smack_enabled,
 	.blobs = &smack_blob_sizes,
 	.init = smack_init,
 };

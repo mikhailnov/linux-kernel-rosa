@@ -1468,7 +1468,7 @@ static const struct kernel_param_ops param_ops_aaintbool = {
 	.get = param_get_aaintbool
 };
 /* Boot time disable flag */
-static int apparmor_enabled __ro_after_init = 1;
+static int apparmor_enabled __ro_after_init = 0;
 module_param_named(enabled, apparmor_enabled, aaintbool, 0444);
 
 static int __init apparmor_enabled_setup(char *str)

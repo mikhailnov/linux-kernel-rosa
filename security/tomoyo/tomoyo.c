@@ -584,7 +584,20 @@ static struct security_hook_list tomoyo_hooks[] __ro_after_init = {
 /* Lock for GC. */
 DEFINE_SRCU(tomoyo_ss);
 
-int tomoyo_enabled __ro_after_init = 1;
+/* Boot time disable flag */
+int tomoyo_enabled __ro_after_init = 0;
+module_param_named(enabled, tomoyo_enabled, int, 0444);
+
+static int __init tomoyo_enabled_setup(char *str)
+{
+	unsigned long enabled;
+	int error = kstrtoul(str, 0, &enabled);
+	if (!error)
+		tomoyo_enabled = enabled ? 1 : 0;
+	return 1;
+}
+
+__setup("tomoyo=", tomoyo_enabled_setup);
 
 /**
  * tomoyo_init - Register TOMOYO Linux as a LSM module.
