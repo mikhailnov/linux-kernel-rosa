@@ -782,7 +782,9 @@ static const struct vm_operations_struct ext4_file_vm_ops = {
 static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct inode *inode = file->f_mapping->host;
-	struct dax_device *dax_dev = EXT4_SB(inode->i_sb)->s_daxdev;
+	struct super_block *sb = inode->i_sb;
+	struct ext4_sb_info *sbi = EXT4_SB(sb);
+	struct dax_device *dax_dev = sbi->s_daxdev;
 
 	if (unlikely(ext4_forced_shutdown(inode->i_sb)))
 		return -EIO;
@@ -793,6 +795,27 @@ static int ext4_file_mmap(struct file *file, struct vm_area_struct *vma)
 	 */
 	if (!daxdev_mapping_supported(vma, dax_dev))
 		return -EOPNOTSUPP;
+
+	/*
+	 * Writing via mmap has no logic to handle inline data, so we
+	 * need to call ext4_convert_inline_data() to convert the inode
+	 * to normal format before doing so, otherwise a BUG_ON will be
+	 * triggered in ext4_writepages() due to the
+	 * EXT4_STATE_MAY_INLINE_DATA flag. Moreover, we need to grab
+	 * i_rwsem during conversion, since clearing and setting the
+	 * inline data flag may race with ext4_buffered_write_iter()
+	 * to trigger a BUG_ON.
+	 */
+	if (ext4_has_feature_inline_data(sb) &&
+	    vma->vm_flags & VM_SHARED && vma->vm_flags & VM_MAYWRITE) {
+		int err;
+
+		inode_lock(inode);
+		err = ext4_convert_inline_data(inode);
+		inode_unlock(inode);
+		if (err)
+			return err;
+	}
 
 	file_accessed(file);
 	if (IS_DAX(file_inode(file))) {
