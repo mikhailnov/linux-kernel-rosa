@@ -6229,8 +6229,8 @@ lpfc_debugfs_initialize(struct lpfc_vport *vport)
 					i++;
 				}
 				lpfc_debugfs_max_slow_ring_trc = (1 << i);
-				pr_err("lpfc_debugfs_max_disc_trc changed to "
-				       "%d\n", lpfc_debugfs_max_disc_trc);
+				pr_err("lpfc_debugfs_max_slow_ring_trc changed to "
+				       "%d\n", lpfc_debugfs_max_slow_ring_trc);
 			}
 		}
 
