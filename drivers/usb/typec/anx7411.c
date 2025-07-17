@@ -735,7 +735,7 @@ static int anx7411_send_msg(struct anx7411_data *ctx, u8 type, u8 *buf, u8 size)
 	u8 crc;
 	int ret;
 
-	size = min_t(u8, size, (u8)MAX_BUF_LEN);
+	size = min_t(u8, size, (u8)(MAX_BUF_LEN - 1));
 	memcpy(msg->buf, buf, size);
 	msg->msg_type = type;
 	/* msg len equals buffer length + msg_type */
