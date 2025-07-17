@@ -418,7 +418,8 @@ static unsigned int get_compensation(int ratio)
 		comp = (cal_data[ratio].steady_comp +
 			cal_data[ratio - 1].steady_comp +
 			cal_data[ratio - 2].steady_comp) / 3;
-	} else if (cal_data[ratio].confidence >= CONFIDENCE_OK &&
+	} else if (ratio > 0 && ratio < MAX_TARGET_RATIO - 1 &&
+		cal_data[ratio].confidence >= CONFIDENCE_OK &&
 		cal_data[ratio - 1].confidence >= CONFIDENCE_OK &&
 		cal_data[ratio + 1].confidence >= CONFIDENCE_OK) {
 		comp = (cal_data[ratio].steady_comp +
