@@ -580,6 +580,9 @@ static int enable_eprobe(struct trace_eprobe *ep,
 	struct trace_event_file *file;
 	struct trace_array *tr = eprobe_file->tr;
 
+	if (!eprobe_file)
+		return -EINVAL;
+
 	file = find_event_file(tr, ep->event_system, ep->event_name);
 	if (!file)
 		return -ENOENT;
@@ -717,7 +720,7 @@ static int disable_trace_eprobe(struct trace_event_call *call,
 	} else
 		trace_probe_clear_flag(tp, TP_FLAG_PROFILE);
 
-	if (!trace_probe_is_enabled(tp)) {
+	if (!trace_probe_is_enabled(tp) && (file)) {
 		for_each_trace_eprobe_tp(ep, tp)
 			disable_eprobe(ep, file->tr);
 	}
