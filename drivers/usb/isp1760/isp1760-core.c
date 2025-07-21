@@ -109,12 +109,10 @@ static int isp1760_init_core(struct isp1760_device *isp)
 
 void isp1760_set_pullup(struct isp1760_device *isp, bool enable)
 {
-	struct isp1760_udc *udc = &isp->udc;
-
 	if (enable)
-		isp1760_field_set(udc->fields, HW_DP_PULLUP);
+		isp1760_field_set(isp->hcd.fields, HW_DP_PULLUP);
 	else
-		isp1760_field_set(udc->fields, HW_DP_PULLUP_CLEAR);
+		isp1760_field_set(isp->hcd.fields, HW_DP_PULLUP_CLEAR);
 }
 
 /*
