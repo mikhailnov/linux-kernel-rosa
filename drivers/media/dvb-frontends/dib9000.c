@@ -1144,7 +1144,7 @@ static int dib9000_fw_init(struct dib9000_state *state)
 		return -EINVAL;
 	}
 
-	for (i = 0; i < size; i += 2) {
+	for (i = 0; i < min(size, 2 * ARRAY_SIZE(state->platform.risc.fe_mm)); i += 2) {
 		state->platform.risc.fe_mm[i / 2].addr = b[i + 0];
 		state->platform.risc.fe_mm[i / 2].size = b[i + 1];
 	}
