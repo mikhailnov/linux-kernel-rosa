@@ -577,7 +577,8 @@ static netdev_tx_t mpc_send_packet(struct sk_buff *skb,
 	mpc = find_mpc_by_lec(dev); /* this should NEVER fail */
 	if (mpc == NULL) {
 		pr_info("(%s) no MPC found\n", dev->name);
-		goto non_ip;
+		dev_kfree_skb_any(skb);
+		return NETDEV_TX_OK;
 	}
 
 	eth = (struct ethhdr *)skb->data;
