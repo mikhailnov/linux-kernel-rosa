@@ -24,6 +24,7 @@
 #define MAX_PATH 1024
 
 struct kiosk_list_struct {
+	int secureexec;
 	struct path path;
 	struct list_head list;
 };
@@ -62,6 +63,7 @@ enum kiosk_attrs {
 	KIOSK_NOATTR = 0,
 	KIOSK_ACTION,
 	KIOSK_DATA,
+	KIOSK_SECUREEXEC,
 	__KIOSK_MAX_ATTR,
 	KIOSK_MAX_ATTR = __KIOSK_MAX_ATTR - 1,
 };
@@ -74,10 +76,13 @@ static struct nla_policy kiosk_policy[KIOSK_MAX_ATTR + 1] = {
 		.type = NLA_STRING,
 		.len = sizeof(pathbuf) - 1
 	},
+	[KIOSK_SECUREEXEC] = {
+		.type = NLA_S16,
+	},
 };
 
 static int kiosk_add_item(struct list_head *list, char *filename,
-		struct rw_semaphore *sem)
+		int secureexec, struct rw_semaphore *sem)
 {
 	struct kiosk_list_struct *item, *tmp;
 	int mode;
@@ -106,12 +111,16 @@ static int kiosk_add_item(struct list_head *list, char *filename,
 	down_write(sem);
 	list_for_each_entry(tmp, list, list) {
 		if (item->path.dentry == tmp->path.dentry) {
+			if (tmp->secureexec != secureexec) {
+				tmp->secureexec = secureexec;
+			}
 			up_write(sem);
 			path_put(&item->path);
 			kfree(item);
 			return 0;
 		}
 	}
+	item->secureexec = secureexec;
 	list_add_tail(&item->list, list);
 	up_write(sem);
 
@@ -212,11 +221,15 @@ static int kiosk_list_items(struct list_head *list, struct rw_semaphore *sem,
 static int kiosk_genl_doit(struct sk_buff *skb, struct genl_info *info)
 {
 	int action;
+	int secureexec;
 
 	if (info->attrs[KIOSK_DATA])
 		strscpy(pathbuf, nla_data(info->attrs[KIOSK_DATA]), sizeof(pathbuf));
 	else
 		pathbuf[0] = '\0';
+
+	secureexec = info->attrs[KIOSK_SECUREEXEC] ?
+		nla_get_s16(info->attrs[KIOSK_SECUREEXEC]) : 1;
 
 	action = info->attrs[KIOSK_ACTION] ?
 		nla_get_s16(info->attrs[KIOSK_ACTION]) : -1;
@@ -243,7 +256,7 @@ static int kiosk_genl_doit(struct sk_buff *skb, struct genl_info *info)
 		return 0;
 	}
 	case KIOSK_USERLIST_ADD:
-		return kiosk_add_item(&user_list, pathbuf, &user_sem);
+		return kiosk_add_item(&user_list, pathbuf, secureexec, &user_sem);
 	case KIOSK_USERLIST_DEL:
 		return kiosk_remove_item(&user_list, pathbuf,
 					 &user_sem);
@@ -297,6 +310,10 @@ static int kiosk_bprm_check_security(struct linux_binprm *bprm)
 		down_read(&user_sem);
 		list_for_each_entry(node, &user_list, list) {
 			if (bprm->file->f_path.dentry == node->path.dentry) {
+				if (node->secureexec == 0) {
+					bprm->secureexec = 0;
+					pr_notice_ratelimited("Kiosk: %s will not be treated securely\n", bprm->filename);
+				}
 				up_read(&user_sem);
 				return 0;
 			}
