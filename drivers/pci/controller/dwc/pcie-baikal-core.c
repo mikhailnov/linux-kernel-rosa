@@ -2209,10 +2209,31 @@ static int baikal_pcie_probe(struct platform_device *pdev)
 	union baikal_pcie *bp;
 	const struct baikal_pcie_of_data *data;
 	int ret;
+	struct of_changeset ocs;
 
 	data = of_device_get_match_data(dev);
 	if (!data)
 		return -EINVAL;
+
+	if (!of_property_present(dev->of_node,"dma-coherent") &&
+		!of_property_present(dev->of_node,"dma-noncoherent"))
+	{
+		dev->dma_coherent = true;
+
+		of_changeset_init(&ocs);
+
+		ret=of_changeset_add_prop_bool(&ocs,dev->of_node,"dma-coherent");
+		if (ret) {
+			dev_err(dev, "failed to append dma-coherent property\n");
+			return ret;
+		}
+
+		ret=of_changeset_apply(&ocs);
+		if (ret) {
+			dev_err(dev, "failed to append dma-coherent property\n");
+			return ret;
+		}
+	}
 
 	bp = devm_kzalloc(dev, sizeof(*bp), GFP_KERNEL);
 	if (!bp)
