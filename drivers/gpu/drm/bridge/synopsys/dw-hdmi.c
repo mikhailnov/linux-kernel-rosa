@@ -3527,7 +3527,8 @@ struct dw_hdmi *dw_hdmi_probe(struct platform_device *pdev,
 			audio.regshift = 2;
 			dev_info(dev, "setting audio.regshift=%d for BE-M1000 SoC\n",
 				 audio.regshift);
-		}
+			audio.batch_mode = true;
+		} else audio.batch_mode = false;
 		hdmi->enable_audio = dw_hdmi_ahb_audio_enable;
 		hdmi->disable_audio = dw_hdmi_ahb_audio_disable;
 

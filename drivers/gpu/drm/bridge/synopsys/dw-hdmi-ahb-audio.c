@@ -356,6 +356,8 @@ static int dw_hdmi_open(struct snd_pcm_substream *substream)
 	int ret;
 
 	runtime->hw = dw_hdmi_hw;
+	if (dw->data.batch_mode)
+		runtime->hw.info |= SNDRV_PCM_INFO_BATCH;
 
 	eld = dw->data.get_eld(dw->data.hdmi);
 	if (eld) {
