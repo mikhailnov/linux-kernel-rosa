@@ -11,6 +11,7 @@ struct dw_hdmi_audio_data {
 	struct dw_hdmi *hdmi;
 	u8 *(*get_eld)(struct dw_hdmi *hdmi);
 	unsigned regshift;
+	bool batch_mode;
 };
 
 struct dw_hdmi_i2s_audio_data {
