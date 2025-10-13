@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-000.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-001.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-010.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-011.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-100.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-101.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-110.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-thin_88rk-1a-111.dtb

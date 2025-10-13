@@ -1,0 +1,9 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+
+/dts-v1/;
+
+#define THIN_88RK_SATA
+#define THIN_88RK_PCIE3_2x2
+#define THIN_88RK_LDVS
+
+#include "rk3588-thin_88rk-1a-common.dtsi"
