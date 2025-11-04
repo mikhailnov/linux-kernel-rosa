@@ -238,6 +238,7 @@ static int phylink_interface_max_speed(phy_interface_t interface)
 		return SPEED_5000;
 
 	case PHY_INTERFACE_MODE_XGMII:
+	case PHY_INTERFACE_MODE_10GBASEX:
 	case PHY_INTERFACE_MODE_RXAUI:
 	case PHY_INTERFACE_MODE_XAUI:
 	case PHY_INTERFACE_MODE_10GBASER:
@@ -552,6 +553,7 @@ static unsigned long phylink_get_capabilities(phy_interface_t interface,
 		break;
 
 	case PHY_INTERFACE_MODE_XGMII:
+	case PHY_INTERFACE_MODE_10GBASEX:
 	case PHY_INTERFACE_MODE_RXAUI:
 	case PHY_INTERFACE_MODE_XAUI:
 	case PHY_INTERFACE_MODE_10GBASER:
@@ -930,8 +932,10 @@ static int phylink_parse_mode(struct phylink *pl,
 		case PHY_INTERFACE_MODE_2500BASEX:
 		case PHY_INTERFACE_MODE_5GBASER:
 		case PHY_INTERFACE_MODE_25GBASER:
+		case PHY_INTERFACE_MODE_XGMII:
 		case PHY_INTERFACE_MODE_USXGMII:
 		case PHY_INTERFACE_MODE_10G_QXGMII:
+		case PHY_INTERFACE_MODE_10GBASEX:
 		case PHY_INTERFACE_MODE_10GKR:
 		case PHY_INTERFACE_MODE_10GBASER:
 		case PHY_INTERFACE_MODE_XLGMII:
@@ -3861,6 +3865,7 @@ void phylink_mii_c45_pcs_get_state(struct mdio_device *pcs,
 		return;
 
 	switch (state->interface) {
+	case PHY_INTERFACE_MODE_10GBASEX:
 	case PHY_INTERFACE_MODE_10GBASER:
 		state->speed = SPEED_10000;
 		state->duplex = DUPLEX_FULL;

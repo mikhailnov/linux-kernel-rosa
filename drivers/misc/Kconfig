@@ -540,6 +540,23 @@ config VCPU_STALL_DETECTOR
 
 	  If you do not intend to run this kernel as a guest, say N.
 
+config TP_BMC
+	tristate "T-Platforms Baikal-T(1)/M BMC"
+	depends on I2C && OF
+	select PINCTRL
+	select GENERIC_PINCONF
+	select RTC_CLASS
+	select SERIO
+	help
+	  Say Y here if you want to build a driver for T-Platforms BMC devices
+	  embedded into the boards with Baikal-T(1)/M processors. The device main
+	  purpose is the CPU kick-starting as well as some additional side-way
+	  functionality like power on/off buttons state tracing and full device
+	  powering off.
+
+	  If you choose to build module, its name will be tp-bt-bmc. If unsure,
+	  say N here.
+
 config TMR_MANAGER
 	tristate "Select TMR Manager"
 	depends on MICROBLAZE && MB_MANAGER

@@ -18,6 +18,18 @@ static bool dw_dma_acpi_filter(struct dma_chan *chan, void *param)
 		.m_master = data->m_master,
 		.p_master = data->p_master,
 	};
+	struct fwnode_reference_args args = {};
+
+	if (!fwnode_property_get_reference_args(dma_spec->dev->fwnode,
+						"baikal,masters", NULL, 3,
+						dma_spec->slave_id, &args)) {
+		if (args.nargs > 1) {
+			slave.m_master = args.args[0];
+			slave.p_master = args.args[1];
+		}
+		if (args.nargs == 3)
+			slave.channels = args.args[2];
+	}
 
 	return dw_dma_filter(chan, &slave);
 }

@@ -219,6 +219,9 @@ static int tc_delete_knode(struct stmmac_priv *priv,
 static int tc_setup_cls_u32(struct stmmac_priv *priv,
 			    struct tc_cls_u32_offload *cls)
 {
+	if (!priv->dma_cap.frpsel)
+		return -EOPNOTSUPP;
+
 	switch (cls->command) {
 	case TC_CLSU32_REPLACE_KNODE:
 		tc_unfill_entry(priv, cls);
@@ -340,11 +343,12 @@ static int tc_setup_cbs(struct stmmac_priv *priv,
 	u32 ptr;
 	int ret;
 
+	if (!priv->dma_cap.av)
+		return -EOPNOTSUPP;
+
 	/* Queue 0 is not AVB capable */
 	if (queue <= 0 || queue >= tx_queues_count)
 		return -EINVAL;
-	if (!priv->dma_cap.av)
-		return -EOPNOTSUPP;
 
 	port_transmit_rate_kbps = qopt->idleslope - qopt->sendslope;
 
@@ -866,8 +870,11 @@ static int tc_setup_cls(struct stmmac_priv *priv,
 {
 	int ret = 0;
 
+	if (!priv->dma_cap.l3l4fnum)
+		return -EOPNOTSUPP;
+
 	/* When RSS is enabled, the filtering will be bypassed */
-	if (priv->rss.enable)
+	if (priv->dev->features & NETIF_F_RXHASH)
 		return -EBUSY;
 
 	switch (cls->command) {
@@ -1157,6 +1164,7 @@ static int tc_setup_etf(struct stmmac_priv *priv,
 {
 	if (!priv->dma_cap.tbssel)
 		return -EOPNOTSUPP;
+
 	if (qopt->queue >= priv->plat->tx_queues_to_use)
 		return -EINVAL;
 	if (!(priv->dma_conf.tx_queue[qopt->queue].tbs & STMMAC_TBS_AVAIL))

@@ -100,12 +100,6 @@ enum ttc_control {
 	DMA_CONTROL_OSF = 0x00000004,	/* Operate On 2nd Frame */
 };
 
-/* STMAC110 DMA Missed Frame Counter register defines */
-#define DMA_MISSED_FRAME_OVE	0x10000000	/* FIFO Overflow Overflow */
-#define DMA_MISSED_FRAME_OVE_CNTR 0x0ffe0000	/* Overflow Frame Counter */
-#define DMA_MISSED_FRAME_OVE_M	0x00010000	/* Missed Frame Overflow */
-#define DMA_MISSED_FRAME_M_CNTR	0x0000ffff	/* Missed Frame Couinter */
-
 extern const struct stmmac_dma_ops dwmac100_dma_ops;
 
 #endif /* __DWMAC100_H__ */

@@ -458,7 +458,7 @@ static void dw_wdt_handle_tops(struct dw_wdt *dw_wdt, const u32 *tops)
 
 static int dw_wdt_init_timeouts(struct dw_wdt *dw_wdt, struct device *dev)
 {
-	u32 data, of_tops[DW_WDT_NUM_TOPS];
+	u32 data, tops_data[DW_WDT_NUM_TOPS];
 	const u32 *tops;
 	int ret;
 
@@ -471,14 +471,13 @@ static int dw_wdt_init_timeouts(struct dw_wdt *dw_wdt, struct device *dev)
 	if (data & WDOG_COMP_PARAMS_1_USE_FIX_TOP) {
 		tops = dw_wdt_fix_tops;
 	} else {
-		ret = of_property_read_variable_u32_array(dev_of_node(dev),
-			"snps,watchdog-tops", of_tops, DW_WDT_NUM_TOPS,
-			DW_WDT_NUM_TOPS);
+		ret = device_property_read_u32_array(dev, "snps,watchdog-tops",
+			tops_data, DW_WDT_NUM_TOPS);
 		if (ret < 0) {
 			dev_warn(dev, "No valid TOPs array specified\n");
 			tops = dw_wdt_fix_tops;
 		} else {
-			tops = of_tops;
+			tops = tops_data;
 		}
 	}
 
@@ -550,6 +549,7 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct watchdog_device *wdd;
 	struct dw_wdt *dw_wdt;
+	u32 rate = 0;
 	int ret;
 
 	dw_wdt = devm_kzalloc(dev, sizeof(*dw_wdt), GFP_KERNEL);
@@ -569,13 +569,19 @@ static int dw_wdt_drv_probe(struct platform_device *pdev)
 	dw_wdt->clk = devm_clk_get_enabled(dev, "tclk");
 	if (IS_ERR(dw_wdt->clk)) {
 		dw_wdt->clk = devm_clk_get_enabled(dev, NULL);
-		if (IS_ERR(dw_wdt->clk))
+		if (IS_ERR(dw_wdt->clk) &&
+		    !device_property_present(dev, "clock-frequency"))
 			return PTR_ERR(dw_wdt->clk);
 	}
 
-	dw_wdt->rate = clk_get_rate(dw_wdt->clk);
-	if (dw_wdt->rate == 0)
-		return -EINVAL;
+	if (IS_ERR(dw_wdt->clk)) {
+		device_property_read_u32(dev, "clock-frequency", &rate);
+		if (rate == 0)
+			return -EINVAL;
+		dw_wdt->rate = rate;
+	} else {
+		dw_wdt->rate = clk_get_rate(dw_wdt->clk);
+	}
 
 	/*
 	 * Request APB clock if device is configured with async clocks mode.

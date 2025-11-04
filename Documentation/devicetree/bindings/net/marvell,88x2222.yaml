@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/net/marvell,88x2222.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Marvell 88x2222 PHY
+
+maintainers:
+  - Andrew Lunn <andrew@lunn.ch>
+  - Heiner Kallweit <hkallweit1@gmail.com>
+  - Russell King <linux@armlinux.org.uk>
+
+description: |
+  The Marvell 88X2222 transceiver is a fully integrated single chip solution
+  providing end-to-end data transmission over fiber-optic networks as well as
+  Twinax® copper links. It is a 2-port device that performs all physical layer
+  functions associated with 10GBASE-R, and 1000BASE-X.
+
+  The line-side interface supports 2 ports of 10GBASE-R and 1000BASE-X. The
+  line side also supports Clause 73 AP Auto-Negotiation. The host-side
+  interface supports 4 ports of 10GBASE-R, RXAUI, 1000BASE-X, and 2 ports of
+  XAUI. Any port from the host side can be attached to any port on the line
+  side as long as the speeds match.
+
+allOf:
+  - $ref: ethernet-phy.yaml#
+
+properties:
+  compatible:
+    enum:
+      - ethernet-phy-id0141.0f10
+      - ethernet-phy-id0141.31b0
+
+  gpio-controller: true
+
+  '#gpio-cells':
+    const: 2
+
+  ngpios:
+    default: 2
+    minimum: 1
+    maximum: 12
+
+  gpio-line-names:
+    minItems: 1
+    maxItems: 12
+
+  gpio-reserved-ranges:
+    minItems: 1
+    maxItems: 12
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/net/mv-phy-88x2222.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    mdio {
+      #address-cells = <1>;
+      #size-cells = <0>;
+
+      ethernet-phy@c {
+        /*  Only needed to make DT lint tools working. Do not copy/paste
+         *  it into the real DTS files.
+         */
+        compatible = "ethernet-phy-id0141.0f10";
+        reg = <0x0c>;
+
+        interrupt-parent = <&pic>;
+        interrupts = <27 IRQ_TYPE_LEVEL_LOW>;
+        interrupt-controller;
+        #interrupt-cells = <2>;
+
+        gpio-controller;
+        #gpio-cells = <2>;
+        gpio-reserved-ranges = <MV_88X2222_LED0 1>,
+                               <MV_88X2222_LED1 1>,
+                               <MV_88X2222_SDA 1>,
+                               <MV_88X2222_SCL 1>;
+
+      };
+    };

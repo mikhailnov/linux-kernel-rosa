@@ -1137,6 +1137,39 @@ static int sg2042_init(struct device *dev, struct sdhci_host *host,
 					     ARRAY_SIZE(clk_ids), clk_ids);
 }
 
+static void baikal_set_clock(struct sdhci_host *host, unsigned int clock)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	clk_set_rate(pltfm_host->clk, clock * 2);
+	host->mmc->actual_clock = clk_get_rate(pltfm_host->clk) / 2;
+	sdhci_enable_clk(host, 0);
+}
+
+static unsigned int baikal_get_max_clock(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	return clk_round_rate(pltfm_host->clk, ULONG_MAX) / 2;
+}
+
+static unsigned int baikal_get_min_clock(struct sdhci_host *host)
+{
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
+	return clk_round_rate(pltfm_host->clk, 1) / 2;
+}
+
+static const struct sdhci_ops sdhci_dwcmshc_baikal_ops = {
+	.set_clock		= baikal_set_clock,
+	.get_max_clock		= baikal_get_max_clock,
+	.get_min_clock		= baikal_get_min_clock,
+	.set_bus_width		= sdhci_set_bus_width,
+	.set_uhs_signaling	= dwcmshc_set_uhs_signaling,
+	.reset			= sdhci_reset,
+	.adma_write_desc	= dwcmshc_adma_write_desc,
+};
+
 static const struct sdhci_ops sdhci_dwcmshc_ops = {
 	.set_clock		= sdhci_set_clock,
 	.set_bus_width		= sdhci_set_bus_width,
@@ -1209,6 +1242,15 @@ static const struct sdhci_ops sdhci_dwcmshc_sg2042_ops = {
 	.reset			= sg2042_sdhci_reset,
 	.adma_write_desc	= dwcmshc_adma_write_desc,
 	.platform_execute_tuning = th1520_execute_tuning,
+};
+
+static const struct dwcmshc_pltfm_data sdhci_dwcmshc_baikal_pdata = {
+	.pdata = {
+		.ops = &sdhci_dwcmshc_baikal_ops,
+		.quirks = SDHCI_QUIRK_CAP_CLOCK_BASE_BROKEN,
+		.quirks2 = SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+			   SDHCI_QUIRK2_BROKEN_64_BIT_DMA_MASK,
+	},
 };
 
 static const struct dwcmshc_pltfm_data sdhci_dwcmshc_pdata = {
@@ -1349,6 +1391,10 @@ dsbl_cqe_caps:
 
 static const struct of_device_id sdhci_dwcmshc_dt_ids[] = {
 	{
+		.compatible = "baikal,dwcmshc-sdhci",
+		.data = &sdhci_dwcmshc_baikal_pdata,
+	},
+	{
 		.compatible = "rockchip,rk3588-dwcmshc",
 		.data = &sdhci_dwcmshc_rk35xx_pdata,
 	},
@@ -1390,6 +1436,10 @@ static const struct acpi_device_id sdhci_dwcmshc_acpi_ids[] = {
 		.id = "MLNXBF30",
 		.driver_data = (kernel_ulong_t)&sdhci_dwcmshc_bf3_pdata,
 	},
+	{
+		.id = "BKLE0004",
+		.driver_data = (kernel_ulong_t)&sdhci_dwcmshc_baikal_pdata,
+	},
 	{}
 };
 MODULE_DEVICE_TABLE(acpi, sdhci_dwcmshc_acpi_ids);
@@ -1427,7 +1477,7 @@ static int dwcmshc_probe(struct platform_device *pdev)
 	pltfm_host = sdhci_priv(host);
 	priv = sdhci_pltfm_priv(pltfm_host);
 
-	if (dev->of_node) {
+	if (dev->of_node || pltfm_data == &sdhci_dwcmshc_baikal_pdata) {
 		pltfm_host->clk = devm_clk_get(dev, "core");
 		if (IS_ERR(pltfm_host->clk)) {
 			err = PTR_ERR(pltfm_host->clk);

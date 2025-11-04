@@ -3372,7 +3372,7 @@ struct dw_hdmi *dw_hdmi_probe(struct platform_device *pdev,
 	if (!plat_data->regm) {
 		const struct regmap_config *reg_config;
 
-		of_property_read_u32(np, "reg-io-width", &val);
+		device_property_read_u32(dev, "reg-io-width", &val);
 		switch (val) {
 		case 4:
 			reg_config = &hdmi_regmap_32bit_config;
@@ -3403,14 +3403,20 @@ struct dw_hdmi *dw_hdmi_probe(struct platform_device *pdev,
 		hdmi->regm = plat_data->regm;
 	}
 
-	clk = devm_clk_get_enabled(hdmi->dev, "isfr");
+	if (is_of_node(hdmi->dev->fwnode))
+		clk = devm_clk_get_enabled(hdmi->dev, "isfr");
+	else
+		clk = devm_clk_get_optional_enabled(hdmi->dev, "isfr");
 	if (IS_ERR(clk)) {
 		ret = PTR_ERR(clk);
 		dev_err(hdmi->dev, "Unable to get HDMI isfr clk: %d\n", ret);
 		goto err_res;
 	}
 
-	clk = devm_clk_get_enabled(hdmi->dev, "iahb");
+	if (is_of_node(hdmi->dev->fwnode))
+		clk = devm_clk_get_enabled(hdmi->dev, "iahb");
+	else
+		clk = devm_clk_get_optional_enabled(hdmi->dev, "iahb");
 	if (IS_ERR(clk)) {
 		ret = PTR_ERR(clk);
 		dev_err(hdmi->dev, "Unable to get HDMI iahb clk: %d\n", ret);
@@ -3639,6 +3645,15 @@ void dw_hdmi_resume(struct dw_hdmi *hdmi)
 	dw_hdmi_init_hw(hdmi);
 }
 EXPORT_SYMBOL_GPL(dw_hdmi_resume);
+
+struct drm_bridge *dw_hdmi_get_bridge(struct dw_hdmi *hdmi)
+{
+	if (IS_ERR_OR_NULL(hdmi))
+		return NULL;
+
+	return &hdmi->bridge;
+}
+EXPORT_SYMBOL_GPL(dw_hdmi_get_bridge);
 
 MODULE_AUTHOR("Sascha Hauer <s.hauer@pengutronix.de>");
 MODULE_AUTHOR("Andy Yan <andy.yan@rock-chips.com>");

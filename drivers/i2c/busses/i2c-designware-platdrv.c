@@ -11,6 +11,7 @@
 #include <linux/clk-provider.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/dma-mapping.h>
 #include <linux/dmi.h>
 #include <linux/err.h>
 #include <linux/errno.h>
@@ -122,6 +123,7 @@ static int dw_i2c_plat_request_regs(struct dw_i2c_dev *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev->dev);
 	int ret;
+	struct resource *mem;
 
 	switch (dev->flags & MODEL_MASK) {
 	case MODEL_BAIKAL_BT1:
@@ -131,7 +133,8 @@ static int dw_i2c_plat_request_regs(struct dw_i2c_dev *dev)
 		ret = txgbe_i2c_request_regs(dev);
 		break;
 	default:
-		dev->base = devm_platform_ioremap_resource(pdev, 0);
+		dev->base = devm_platform_get_and_ioremap_resource(pdev, 0, &mem);
+		dev->phys_addr = mem->start;
 		ret = PTR_ERR_OR_ZERO(dev->base);
 		break;
 	}
@@ -313,6 +316,42 @@ exit_reset:
 	return ret;
 }
 
+static void i2c_dw_dma_release(struct dw_i2c_dev *dev)
+{
+	if (dev->cmd_dma.buf) {
+		dma_free_coherent(dev->dma_dev,
+				dev->cmd_dma.size, dev->cmd_dma.buf,
+				dev->cmd_dma.phys);
+		dev->cmd_dma.buf = NULL;
+	}
+
+	if (dev->tx_dma.buf) {
+		dma_free_coherent(dev->dma_dev,
+				dev->tx_dma.size, dev->tx_dma.buf,
+				dev->tx_dma.phys);
+		dev->tx_dma.buf = NULL;
+	}
+
+	if (dev->rx_dma.buf) {
+		dma_free_coherent(dev->dma_dev,
+				dev->rx_dma.size, dev->rx_dma.buf,
+				dev->rx_dma.phys);
+		dev->rx_dma.buf = NULL;
+	}
+
+	if (dev->dma_chan_tx) {
+		dmaengine_terminate_sync(dev->dma_chan_tx);
+		dma_release_channel(dev->dma_chan_tx);
+		dev->dma_chan_tx = NULL;
+	}
+
+	if (dev->dma_chan_rx) {
+		dmaengine_terminate_sync(dev->dma_chan_rx);
+		dma_release_channel(dev->dma_chan_rx);
+		dev->dma_chan_rx = NULL;
+	}
+}
+
 static void dw_i2c_plat_remove(struct platform_device *pdev)
 {
 	struct dw_i2c_dev *dev = platform_get_drvdata(pdev);
@@ -329,6 +368,8 @@ static void dw_i2c_plat_remove(struct platform_device *pdev)
 	dw_i2c_plat_pm_cleanup(dev);
 
 	i2c_dw_remove_lock_support(dev);
+
+	i2c_dw_dma_release(dev);
 
 	reset_control_assert(dev->rst);
 }

@@ -14,7 +14,7 @@
 #include <linux/etherdevice.h>
 #include <linux/netdevice.h>
 #include <linux/stmmac.h>
-#include <linux/phy.h>
+#include <linux/phylink.h>
 #include <linux/pcs/pcs-xpcs.h>
 #include <linux/module.h>
 #if IS_ENABLED(CONFIG_VLAN_8021Q)
@@ -150,7 +150,6 @@ struct stmmac_extra_stats {
 	unsigned long fatal_bus_error_irq;
 	/* Tx/Rx IRQ Events */
 	unsigned long rx_early_irq;
-	unsigned long threshold;
 	unsigned long irq_receive_pmt_irq_n;
 	/* MMC info */
 	unsigned long mmc_tx_irq_n;
@@ -182,6 +181,7 @@ struct stmmac_extra_stats {
 	unsigned long ptp_frame_type;
 	unsigned long ptp_ver;
 	unsigned long timestamp_dropped;
+	unsigned long arp_pkt_ofld;
 	unsigned long av_pkt_rcvd;
 	unsigned long av_tagged_pkt_rcvd;
 	unsigned long vlan_tag_priority_val;
@@ -192,9 +192,6 @@ struct stmmac_extra_stats {
 	unsigned long irq_pcs_ane_n;
 	unsigned long irq_pcs_link_n;
 	unsigned long irq_rgmii_n;
-	unsigned long pcs_link;
-	unsigned long pcs_duplex;
-	unsigned long pcs_speed;
 	/* debug register */
 	unsigned long mtl_tx_status_fifo_full;
 	unsigned long mtl_tx_fifo_not_empty;
@@ -340,8 +337,14 @@ enum rx_frame_status {
 	discard_frame = 0x1,
 	csum_none = 0x2,
 	llc_snap = 0x4,
-	dma_own = 0x8,
-	rx_not_ls = 0x10,
+	arp_done = 0x8,
+	dma_own = 0x10,
+	rx_not_ls = 0x20,
+	len_err = 0x40, /* Under/Oversized frames */
+	csum_err = 0x80, /* Control sums check failure */
+	proto_err = 0x100, /* L1 protocol failures */
+	cutoff_err = 0x200, /* Frame' cut off due to HW failures */
+	rx_err = len_err | csum_err | proto_err | cutoff_err,
 };
 
 /* Tx status */
@@ -350,20 +353,32 @@ enum tx_frame_status {
 	tx_not_ls = 0x1,
 	tx_err = 0x2,
 	tx_dma_own = 0x4,
-	tx_err_bump_tc = 0x8,
 };
 
 enum dma_irq_status {
-	tx_hard_error = 0x1,
-	tx_hard_error_bump_tc = 0x2,
-	handle_rx = 0x4,
-	handle_tx = 0x8,
+	handle_rx = 0x1,
+	handle_tx = 0x2,
+	io_fatal_error = 0x4,
+	rx_hard_error = 0x8,
+	tx_hard_error = 0x10,
+	rx_ovf_error = 0x20,
+	tx_unf_error = 0x40,
+	tx_soft_stop = 0x80,
 };
 
 enum dma_irq_dir {
 	DMA_DIR_RX = 0x1,
 	DMA_DIR_TX = 0x2,
 	DMA_DIR_RXTX = 0x3,
+};
+
+enum mtl_irq_status {
+	CORE_IRQ_TX_PATH_IN_LPI_MODE = 0x1,
+	CORE_IRQ_TX_PATH_EXIT_LPI_MODE = 0x2,
+	CORE_IRQ_RX_PATH_IN_LPI_MODE = 0x4,
+	CORE_IRQ_RX_PATH_EXIT_LPI_MODE = 0x8,
+	CORE_IRQ_MTL_RX_OVERFLOW = 0x100,
+	CORE_IRQ_MTL_TX_UNDERFLOW = 0x200,
 };
 
 enum request_irq_err {
@@ -379,12 +394,6 @@ enum request_irq_err {
 	REQ_IRQ_ERR_NO,
 };
 
-/* EEE and LPI defines */
-#define	CORE_IRQ_TX_PATH_IN_LPI_MODE	(1 << 0)
-#define	CORE_IRQ_TX_PATH_EXIT_LPI_MODE	(1 << 1)
-#define	CORE_IRQ_RX_PATH_IN_LPI_MODE	(1 << 2)
-#define	CORE_IRQ_RX_PATH_EXIT_LPI_MODE	(1 << 3)
-
 /* FPE defines */
 #define FPE_EVENT_UNKNOWN		0
 #define FPE_EVENT_TRSP			BIT(0)
@@ -392,16 +401,7 @@ enum request_irq_err {
 #define FPE_EVENT_RRSP			BIT(2)
 #define FPE_EVENT_RVER			BIT(3)
 
-#define CORE_IRQ_MTL_RX_OVERFLOW	BIT(8)
-
 /* Physical Coding Sublayer */
-struct rgmii_adv {
-	unsigned int pause;
-	unsigned int duplex;
-	unsigned int lp_pause;
-	unsigned int lp_duplex;
-};
-
 #define STMMAC_PCS_PAUSE	1
 #define STMMAC_PCS_ASYM_PAUSE	2
 
@@ -508,11 +508,9 @@ struct dma_features {
 	unsigned int pcsel;
 };
 
-/* RX Buffer size must be multiple of 4/8/16 bytes */
-#define BUF_SIZE_16KiB 16368
-#define BUF_SIZE_8KiB 8188
-#define BUF_SIZE_4KiB 4096
-#define BUF_SIZE_2KiB 2048
+/* RX Buffer size alignment is of 4/8/16 bytes */
+#define STMMAC_RX_BUF_ALIGN(x)		ALIGN_DOWN(x, 16)
+#define STMMAC_RX_BUF_ADJUST(x)		ALIGN(x, 16)
 
 /* Power Down and WOL */
 #define PMT_NOT_SUPPORTED 0
@@ -531,7 +529,12 @@ struct dma_features {
 #define STMMAC_CHAIN_MODE	0x1
 #define STMMAC_RING_MODE	0x2
 
-#define JUMBO_LEN		9000
+/* MAC MTU constraint */
+#define STMMAC_MTU_GIANT	(SZ_16K - ETH_HLEN - 2*VLAN_HLEN - ETH_FCS_LEN - 1)
+#define STMMAC_MTU_JUMBO	9000
+#define STMMAC_MTU_NORMAL	ETH_DATA_LEN
+#define XGMAC_JUMBO_LEN		STMMAC_MTU_GIANT
+#define JUMBO_LEN		STMMAC_MTU_JUMBO
 
 /* Receive Side Scaling */
 #define STMMAC_RSS_HASH_KEY_SIZE	40
@@ -543,13 +546,25 @@ struct dma_features {
 #define STMMAC_VLAN_INSERT	0x2
 #define STMMAC_VLAN_REPLACE	0x3
 
+/* AXI ACE */
+#define STMMAC_AXI_ACE_AR_WbNa		0xb
+#define STMMAC_AXI_ACE_AW_WbNa		0x7
+#define STMMAC_AXI_ACE_D_NONS		0x0
+#define STMMAC_AXI_ACE_D_INNS		0x1
+#define STMMAC_AXI_ACE_D_OUTS		0x2
+#define STMMAC_AXI_ACE_D_SYS		0x3
+#define STMMAC_AXI_ACE(_dev, _reg, _val) \
+	(FIELD_PREP(_dev ## _AXI_ ## _reg, STMMAC_AXI_ACE_ ## _val))
+
 extern const struct stmmac_desc_ops enh_desc_ops;
+extern const struct stmmac_desc_ops enh_desc_noext_ops;
+extern const struct stmmac_desc_ops enh_desc_ext_ops;
 extern const struct stmmac_desc_ops ndesc_ops;
+extern const struct stmmac_desc_ops ndesc_rxcoe2_ops;
 
 struct mac_device_info;
 
 extern const struct stmmac_hwtimestamp stmmac_ptp;
-extern const struct stmmac_mode_ops dwmac4_ring_mode_ops;
 
 struct mac_link {
 	u32 caps;
@@ -583,15 +598,27 @@ struct mii_regs {
 	unsigned int clk_csr_mask;
 };
 
+struct stmmac_pcs {
+	struct stmmac_priv *priv;
+	void __iomem *pcs_base;
+	struct phylink_pcs pcs;
+};
+
+static inline struct stmmac_pcs *
+phylink_pcs_to_stmmac_pcs(struct phylink_pcs *pcs)
+{
+	return container_of(pcs, struct stmmac_pcs, pcs);
+}
+
 struct mac_device_info {
 	const struct stmmac_ops *mac;
 	const struct stmmac_desc_ops *desc;
 	const struct stmmac_dma_ops *dma;
-	const struct stmmac_mode_ops *mode;
 	const struct stmmac_hwtimestamp *ptp;
 	const struct stmmac_tc_ops *tc;
 	const struct stmmac_mmc_ops *mmc;
 	const struct stmmac_est_ops *est;
+	struct stmmac_pcs mac_pcs;
 	struct dw_xpcs *xpcs;
 	struct phylink_pcs *phylink_pcs;
 	struct mii_regs mii;	/* MII register Addresses */
@@ -600,16 +627,17 @@ struct mac_device_info {
 	unsigned int multicast_filter_bins;
 	unsigned int unicast_filter_entries;
 	unsigned int mcast_bits_log2;
-	unsigned int rx_csum;
 	unsigned int pcs;
 	unsigned int pmt;
 	unsigned int ps;
 	unsigned int xlgmac;
 	unsigned int num_vlan;
+	u16 vlan_hash;
+	int vlan_ctags;
+	int vlan_stags;
 	u32 vlan_filter[32];
 	bool vlan_fail_q_en;
 	u8 vlan_fail_q;
-	bool hw_vlan_en;
 };
 
 struct stmmac_rx_routing {
@@ -635,10 +663,6 @@ void stmmac_dwmac4_get_mac_addr(void __iomem *ioaddr, unsigned char *addr,
 				unsigned int high, unsigned int low);
 void stmmac_dwmac4_set_mac(void __iomem *ioaddr, bool enable);
 
-void dwmac_dma_flush_tx_fifo(void __iomem *ioaddr);
-
-extern const struct stmmac_mode_ops ring_mode_ops;
-extern const struct stmmac_mode_ops chain_mode_ops;
 extern const struct stmmac_desc_ops dwmac4_desc_ops;
 
 #endif /* __COMMON_H__ */

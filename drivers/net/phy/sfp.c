@@ -229,6 +229,8 @@ struct sff_data {
 struct sfp {
 	struct device *dev;
 	struct i2c_adapter *i2c;
+	struct i2c_client *i2c_a0;
+	struct i2c_client *i2c_a2;
 	struct mii_bus *i2c_mii;
 	struct sfp_bus *sfp_bus;
 	enum mdio_i2c_proto mdio_protocol;
@@ -627,74 +629,47 @@ static void sfp_gpio_set_state(struct sfp *sfp, unsigned int state)
 static int sfp_i2c_read(struct sfp *sfp, bool a2, u8 dev_addr, void *buf,
 			size_t len)
 {
-	struct i2c_msg msgs[2];
-	u8 bus_addr = a2 ? 0x51 : 0x50;
+	struct i2c_client *ee = a2 ? sfp->i2c_a2 : sfp->i2c_a0;
 	size_t block_size = sfp->i2c_block_size;
-	size_t this_len;
+	size_t this_len, i = 0;
 	int ret;
 
-	msgs[0].addr = bus_addr;
-	msgs[0].flags = 0;
-	msgs[0].len = 1;
-	msgs[0].buf = &dev_addr;
-	msgs[1].addr = bus_addr;
-	msgs[1].flags = I2C_M_RD;
-	msgs[1].len = len;
-	msgs[1].buf = buf;
+	while (i < len) {
+		this_len = min(len - i, block_size);
 
-	while (len) {
-		this_len = len;
-		if (this_len > block_size)
-			this_len = block_size;
-
-		msgs[1].len = this_len;
-
-		ret = i2c_transfer(sfp->i2c, msgs, ARRAY_SIZE(msgs));
+		ret = i2c_smbus_read_i2c_block_data_or_emulated(ee, dev_addr + i,
+								this_len, buf + i);
 		if (ret < 0)
 			return ret;
 
-		if (ret != ARRAY_SIZE(msgs))
-			break;
-
-		msgs[1].buf += this_len;
-		dev_addr += this_len;
-		len -= this_len;
+		i += ret;
 	}
 
-	return msgs[1].buf - (u8 *)buf;
+	return i;
 }
 
 static int sfp_i2c_write(struct sfp *sfp, bool a2, u8 dev_addr, void *buf,
-	size_t len)
+			 size_t len)
 {
-	struct i2c_msg msgs[1];
-	u8 bus_addr = a2 ? 0x51 : 0x50;
-	int ret;
+	struct i2c_client *ee = a2 ? sfp->i2c_a2 : sfp->i2c_a0;
 
-	msgs[0].addr = bus_addr;
-	msgs[0].flags = 0;
-	msgs[0].len = 1 + len;
-	msgs[0].buf = kmalloc(1 + len, GFP_KERNEL);
-	if (!msgs[0].buf)
-		return -ENOMEM;
-
-	msgs[0].buf[0] = dev_addr;
-	memcpy(&msgs[0].buf[1], buf, len);
-
-	ret = i2c_transfer(sfp->i2c, msgs, ARRAY_SIZE(msgs));
-
-	kfree(msgs[0].buf);
-
-	if (ret < 0)
-		return ret;
-
-	return ret == ARRAY_SIZE(msgs) ? len : 0;
+	return i2c_smbus_write_i2c_block_data_or_emulated(ee, dev_addr, len, buf);
 }
 
 static int sfp_i2c_configure(struct sfp *sfp, struct i2c_adapter *i2c)
 {
-	if (!i2c_check_functionality(i2c, I2C_FUNC_I2C))
+	if (!i2c_check_functionality(i2c, I2C_FUNC_I2C) &&
+	    !i2c_check_functionality(i2c, I2C_FUNC_SMBUS_I2C_BLOCK) &&
+	    !i2c_check_functionality(i2c, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EINVAL;
+
+	sfp->i2c_a0 = devm_i2c_new_dummy_device(sfp->dev, i2c, 0x50);
+	if (IS_ERR(sfp->i2c_a0))
+		return PTR_ERR(sfp->i2c_a0);
+
+	sfp->i2c_a2 = devm_i2c_new_dummy_device(sfp->dev, i2c, 0x51);
+	if (IS_ERR(sfp->i2c_a2))
+		return PTR_ERR(sfp->i2c_a2);
 
 	sfp->i2c = i2c;
 	sfp->read = sfp_i2c_read;
@@ -1581,6 +1556,14 @@ static const struct hwmon_chip_info sfp_hwmon_chip_info = {
 	.info = sfp_hwmon_info,
 };
 
+static bool sfp_hwmon_access_is_coherent(struct sfp *sfp)
+{
+	return sfp->i2c_block_size >= 2 &&
+	       (i2c_check_functionality(sfp->i2c, I2C_FUNC_I2C) ||
+		i2c_check_functionality(sfp->i2c, I2C_FUNC_SMBUS_I2C_BLOCK) ||
+		i2c_check_functionality(sfp->i2c, I2C_FUNC_SMBUS_WORD_DATA));
+}
+
 static void sfp_hwmon_probe(struct work_struct *work)
 {
 	struct sfp *sfp = container_of(work, struct sfp, hwmon_probe.work);
@@ -1588,15 +1571,13 @@ static void sfp_hwmon_probe(struct work_struct *work)
 
 	/* hwmon interface needs to access 16bit registers in atomic way to
 	 * guarantee coherency of the diagnostic monitoring data. If it is not
-	 * possible to guarantee coherency because EEPROM is broken in such way
-	 * that does not support atomic 16bit read operation then we have to
-	 * skip registration of hwmon device.
+	 * possible to guarantee the coherency (because of the broken EEPROM or
+	 * incapable I2C-controller) we have to skip registration of hwmon
+	 * device.
 	 */
-	if (sfp->i2c_block_size < 2) {
+	if (!sfp_hwmon_access_is_coherent(sfp)) {
 		dev_info(sfp->dev,
-			 "skipping hwmon device registration due to broken EEPROM\n");
-		dev_info(sfp->dev,
-			 "diagnostic EEPROM area cannot be read atomically to guarantee data coherency\n");
+			 "skip hwmon device registration due to incapable interface\n");
 		return;
 	}
 

@@ -73,6 +73,13 @@ config DW_APB_TIMER_OF
 	select DW_APB_TIMER
 	select TIMER_OF
 
+config BAIKAL_DW_APB_TIMER
+	bool "Baikal ACPI support for DW APB timer driver"
+	depends on ARCH_BAIKAL && ACPI
+	select DW_APB_TIMER
+	help
+	  Enables the support for the dw_apb timer in ACPI.
+
 config FTTMR010_TIMER
 	bool "Faraday Technology timer driver" if COMPILE_TEST
 	depends on HAS_IOMEM

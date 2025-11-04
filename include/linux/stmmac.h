@@ -19,10 +19,6 @@
 #define MTL_MAX_TX_QUEUES	8
 #define STMMAC_CH_MAX		8
 
-#define STMMAC_RX_COE_NONE	0
-#define STMMAC_RX_COE_TYPE1	1
-#define STMMAC_RX_COE_TYPE2	2
-
 /* Define the macros for CSR clock range parameters to be passed by
  * platform code.
  * This could also be configured at run time using CPU freq framework. */
@@ -114,6 +110,7 @@ struct stmmac_axi {
 	bool axi_fb;
 	bool axi_mb;
 	bool axi_rb;
+	bool axi_cc;
 };
 
 struct stmmac_rxq_cfg {
@@ -181,6 +178,7 @@ struct dwmac4_addrs {
 #define STMMAC_FLAG_RX_CLK_RUNS_IN_LPI		BIT(10)
 #define STMMAC_FLAG_EN_TX_LPI_CLOCKGATING	BIT(11)
 #define STMMAC_FLAG_HWTSTAMP_CORRECT_LATENCY	BIT(12)
+#define STMMAC_FLAG_TSO_FULL			BIT(13)
 
 struct plat_stmmacenet_data {
 	int bus_id;
@@ -222,6 +220,7 @@ struct plat_stmmacenet_data {
 	int unicast_filter_entries;
 	int tx_fifo_size;
 	int rx_fifo_size;
+	u32 data_width;
 	u32 host_dma_width;
 	u32 rx_queues_to_use;
 	u32 tx_queues_to_use;
@@ -239,6 +238,8 @@ struct plat_stmmacenet_data {
 	void (*exit)(struct platform_device *pdev, void *priv);
 	struct mac_device_info *(*setup)(void *priv);
 	int (*clks_config)(void *priv, bool enabled);
+	int (*bus_reset)(void *priv);
+	int (*swr_reset)(void *priv);
 	int (*crosststamp)(ktime_t *device, struct system_counterval_t *system,
 			   void *ctx);
 	void (*dump_debug_regs)(void *priv);

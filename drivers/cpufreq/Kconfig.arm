@@ -270,3 +270,11 @@ config ARM_PXA2xx_CPUFREQ
 	  This add the CPUFreq driver support for Intel PXA2xx SOCs.
 
 	  If in doubt, say N.
+
+config BAIKAL_CPUFREQ
+	bool "Baikal CPUFreq support"
+	depends on ARCH_BAIKAL && ACPI
+	help
+	  This adds the CPUFreq driver for Baikal SoC's.
+
+	  If in doubt, say N.

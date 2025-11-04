@@ -186,9 +186,50 @@ static int mdio_gpio_probe(struct platform_device *pdev)
 	if (!new_bus)
 		return -ENODEV;
 
-	ret = of_mdiobus_register(new_bus, pdev->dev.of_node);
+	if (pdev->dev.of_node)
+		ret = of_mdiobus_register(new_bus, pdev->dev.of_node);
+	else {
+		new_bus->phy_mask = ~0;
+		new_bus->dev.fwnode = pdev->dev.fwnode;
+		new_bus->reset_delay_us = 10;
+		ret = mdiobus_register(new_bus);
+	}
+
 	if (ret)
 		mdio_gpio_bus_deinit(&pdev->dev);
+
+	if (!pdev->dev.of_node) {
+		struct phy_device *phy;
+		struct fwnode_handle *child;
+		u32 addr;
+
+		device_for_each_child_node(&pdev->dev, child) {
+			ret = fwnode_property_read_u32(child, "reg", &addr);
+			if (ret < 0)
+				continue;
+
+			if (addr >= PHY_MAX_ADDR)
+				continue;
+
+			phy = get_phy_device(new_bus, addr, true);
+			if (IS_ERR(phy)) {
+				ret = PTR_ERR(phy);
+				return ret;
+			}
+
+			phy->irq = new_bus->irq[addr];
+			phy->mdio.dev.fwnode = child;
+
+			ret = phy_device_register(phy);
+			if (ret) {
+				phy_device_free(phy);
+				mdiobus_unregister(new_bus);
+				return ret;
+			}
+
+			dev_info(&pdev->dev, "registered phy at address %i\n", addr);
+		}
+	}
 
 	return ret;
 }

@@ -618,7 +618,7 @@ static int panfrost_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pfdev);
 
-	pfdev->comp = of_device_get_match_data(&pdev->dev);
+	pfdev->comp = device_get_match_data(&pdev->dev);
 	if (!pfdev->comp)
 		return -ENODEV;
 

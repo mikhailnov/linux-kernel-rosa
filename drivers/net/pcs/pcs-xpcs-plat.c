@@ -5,6 +5,7 @@
  * Copyright (C) 2024 Serge Semin
  */
 
+#include <linux/acpi.h>
 #include <linux/atomic.h>
 #include <linux/bitfield.h>
 #include <linux/clk.h>
@@ -235,7 +236,7 @@ static int xpcs_plat_init_res(struct dw_xpcs_plat *pxpcs)
 	struct platform_device *pdev = pxpcs->pdev;
 	struct device *dev = &pdev->dev;
 	resource_size_t spc_size;
-	struct resource *res;
+	struct resource *res = NULL;
 
 	if (!device_property_read_u32(dev, "reg-io-width", &pxpcs->reg_width)) {
 		if (pxpcs->reg_width != 2 && pxpcs->reg_width != 4) {
@@ -246,8 +247,14 @@ static int xpcs_plat_init_res(struct dw_xpcs_plat *pxpcs)
 		pxpcs->reg_width = 2;
 	}
 
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "direct") ?:
-	      platform_get_resource_byname(pdev, IORESOURCE_MEM, "indirect");
+	if (dev->of_node)
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "direct") ?:
+		      platform_get_resource_byname(pdev, IORESOURCE_MEM, "indirect");
+	else if (ACPI_HANDLE(dev)) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+		pxpcs->reg_indir = true;
+	}
+
 	if (!res) {
 		dev_err(dev, "No reg-space found\n");
 		return -EINVAL;
@@ -280,7 +287,7 @@ static int xpcs_plat_init_clk(struct dw_xpcs_plat *pxpcs)
 	struct device *dev = &pxpcs->pdev->dev;
 	int ret;
 
-	pxpcs->cclk = devm_clk_get(dev, "csr");
+	pxpcs->cclk = devm_clk_get_optional_enabled(dev, "csr");
 	if (IS_ERR(pxpcs->cclk))
 		return dev_err_probe(dev, PTR_ERR(pxpcs->cclk),
 				     "Failed to get CSR clock\n");
@@ -322,6 +329,7 @@ static int xpcs_plat_init_bus(struct dw_xpcs_plat *pxpcs)
 	 * access.
 	 */
 	ret = devm_mdiobus_register(dev, pxpcs->bus);
+
 	if (ret) {
 		dev_err(dev, "Failed to create MDIO bus\n");
 		return ret;
@@ -431,6 +439,7 @@ DW_XPCS_INFO_DECLARE(xpcs_pma_gen4_3g, DW_XPCS_ID_NATIVE, DW_XPCS_PMA_GEN4_3G_ID
 DW_XPCS_INFO_DECLARE(xpcs_pma_gen4_6g, DW_XPCS_ID_NATIVE, DW_XPCS_PMA_GEN4_6G_ID);
 DW_XPCS_INFO_DECLARE(xpcs_pma_gen5_10g, DW_XPCS_ID_NATIVE, DW_XPCS_PMA_GEN5_10G_ID);
 DW_XPCS_INFO_DECLARE(xpcs_pma_gen5_12g, DW_XPCS_ID_NATIVE, DW_XPCS_PMA_GEN5_12G_ID);
+DW_XPCS_INFO_DECLARE(xpcs_baikal, BAIKAL_XGMAC_XPCS_ID, DW_XPCS_PMA_GEN5_10G_ID);
 
 static const struct of_device_id xpcs_of_ids[] = {
 	{ .compatible = "snps,dw-xpcs", .data = &xpcs_generic },
@@ -441,6 +450,7 @@ static const struct of_device_id xpcs_of_ids[] = {
 	{ .compatible = "snps,dw-xpcs-gen4-6g", .data = &xpcs_pma_gen4_6g },
 	{ .compatible = "snps,dw-xpcs-gen5-10g", .data = &xpcs_pma_gen5_10g },
 	{ .compatible = "snps,dw-xpcs-gen5-12g", .data = &xpcs_pma_gen5_12g },
+	{ .compatible = "baikal,bm1000-xpcs", .data = &xpcs_baikal },
 	{ /* sentinel */ },
 };
 MODULE_DEVICE_TABLE(of, xpcs_of_ids);

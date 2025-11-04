@@ -31,6 +31,13 @@ static void dwxgmac2_dma_init(void __iomem *ioaddr,
 		value |= XGMAC_EAME;
 
 	writel(value, ioaddr + XGMAC_DMA_SYSBUS_MODE);
+
+	if (dma_cfg->multi_msi_en) {
+		value = readl(ioaddr + XGMAC_DMA_MODE);
+		value &= ~XGMAC_INTM;
+		value |= FIELD_PREP(XGMAC_INTM, XGMAC_INTM_MODE1);
+		writel(value, ioaddr + XGMAC_DMA_MODE);
+	}
 }
 
 static void dwxgmac2_dma_init_chan(struct stmmac_priv *priv,
@@ -44,6 +51,8 @@ static void dwxgmac2_dma_init_chan(struct stmmac_priv *priv,
 
 	writel(value, ioaddr + XGMAC_DMA_CH_CONTROL(chan));
 	writel(XGMAC_DMA_INT_DEFAULT_EN, ioaddr + XGMAC_DMA_CH_INT_EN(chan));
+
+	writel(XGMAC_MTL_INT_DEFAULT_EN, ioaddr + XGMAC_MTL_QINTEN(chan));
 }
 
 static void dwxgmac2_dma_init_rx_chan(struct stmmac_priv *priv,
@@ -130,6 +139,31 @@ static void dwxgmac2_dma_axi(void __iomem *ioaddr, struct stmmac_axi *axi)
 	}
 
 	writel(value, ioaddr + XGMAC_DMA_SYSBUS_MODE);
+
+	if (axi->axi_cc) {
+		writel(STMMAC_AXI_ACE(XGMAC, TX_AR_THD,  D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, TX_AR_THC,  AR_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, TX_AR_TED,  D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, TX_AR_TEC,  AR_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, TX_AR_TDRD, D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, TX_AR_TDRC, AR_WbNa),
+		       ioaddr + XGMAC_AXI_TX_AR_ACE_CTRL);
+		writel(STMMAC_AXI_ACE(XGMAC, RX_AW_RDD,  D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RDC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RHD,  D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RHC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RPD,  D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RPC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RDWD, D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, RX_AW_RDWC, AW_WbNa),
+		       ioaddr + XGMAC_AXI_RX_AW_ACE_CTRL);
+		writel(STMMAC_AXI_ACE(XGMAC, TXRX_AWAR_RDRD, D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, TXRX_AWAR_RDRC, AR_WbNa) |
+		       STMMAC_AXI_ACE(XGMAC, TXRX_AWAR_TDWD, D_OUTS) |
+		       STMMAC_AXI_ACE(XGMAC, TXRX_AWAR_TDWC, AW_WbNa),
+		       ioaddr + XGMAC_AXI_TXRX_AWAR_ACE_CTRL);
+	}
+
 	writel(XGMAC_TDPS, ioaddr + XGMAC_TX_EDMA_CTRL);
 	writel(XGMAC_RDPS, ioaddr + XGMAC_RX_EDMA_CTRL);
 }
@@ -144,7 +178,8 @@ static void dwxgmac2_dma_dump_regs(struct stmmac_priv *priv,
 }
 
 static void dwxgmac2_dma_rx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
-				 int mode, u32 channel, int fifosz, u8 qmode)
+				 int mode, u32 channel, int fifosz, u8 qmode,
+				 bool rxall)
 {
 	u32 value = readl(ioaddr + XGMAC_MTL_RXQ_OPMODE(channel));
 	unsigned int rqs = fifosz / 256 - 1;
@@ -162,6 +197,12 @@ static void dwxgmac2_dma_rx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
 		else
 			value |= 0x3 << XGMAC_RTC_SHIFT;
 	}
+
+	/* Permit errorneous frames (IP/TCP/UDP csum, overflow, giant, etc) */
+	if (rxall)
+		value |= XGMAC_DT | XGMAC_FEP | XGMAC_FUP;
+	else
+		value &= ~(XGMAC_DT | XGMAC_FEP | XGMAC_FUP);
 
 	value &= ~XGMAC_RQS;
 	value |= (rqs << XGMAC_RQS_SHIFT) & XGMAC_RQS;
@@ -203,10 +244,6 @@ static void dwxgmac2_dma_rx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
 	}
 
 	writel(value, ioaddr + XGMAC_MTL_RXQ_OPMODE(channel));
-
-	/* Enable MTL RX overflow */
-	value = readl(ioaddr + XGMAC_MTL_QINTEN(channel));
-	writel(value | XGMAC_RXOIE, ioaddr + XGMAC_MTL_QINTEN(channel));
 }
 
 static void dwxgmac2_dma_tx_mode(struct stmmac_priv *priv, void __iomem *ioaddr,
@@ -353,24 +390,31 @@ static int dwxgmac2_dma_interrupt(struct stmmac_priv *priv,
 			x->rx_buf_unav_irq++;
 			ret |= handle_rx;
 		}
-		if (unlikely(intr_status & XGMAC_TPS)) {
+
+		if (unlikely(intr_status & XGMAC_RPS))
+			x->rx_process_stopped_irq++;
+		if (unlikely(intr_status & XGMAC_TPS))
 			x->tx_process_stopped_irq++;
-			ret |= tx_hard_error;
-		}
+
 		if (unlikely(intr_status & XGMAC_FBE)) {
 			x->fatal_bus_error_irq++;
-			ret |= tx_hard_error;
+			if (intr_status & XGMAC_REB)
+				ret |= rx_hard_error;
+			if (intr_status & XGMAC_TEB)
+				ret |= tx_hard_error;
 		}
 	}
 
-	/* TX/RX NORMAL interrupts */
+	/* TX/RX NORMAL interrupts. Note the NIS flag state is ignored due to
+	 * INTM=0x1 for the per-channel IRQ handling.
+	 */
 	if (likely(intr_status & XGMAC_RI)) {
 		u64_stats_update_begin(&stats->syncp);
 		u64_stats_inc(&stats->rx_normal_irq_n[chan]);
 		u64_stats_update_end(&stats->syncp);
 		ret |= handle_rx;
 	}
-	if (likely(intr_status & (XGMAC_TI | XGMAC_TBU))) {
+	if (likely(intr_status & XGMAC_TI)) {
 		u64_stats_update_begin(&stats->syncp);
 		u64_stats_inc(&stats->tx_normal_irq_n[chan]);
 		u64_stats_update_end(&stats->syncp);
@@ -381,6 +425,20 @@ static int dwxgmac2_dma_interrupt(struct stmmac_priv *priv,
 	writel(intr_en & intr_status, ioaddr + XGMAC_DMA_CH_STATUS(chan));
 
 	return ret;
+}
+
+static bool dwxgmac2_det_hw_dvlan(void __iomem *ioaddr)
+{
+	u32 tmp;
+
+	tmp = readl(ioaddr + XGMAC_VLAN_TAG);
+	writel(tmp ^ XGMAC_VLAN_EIVLRXS, ioaddr + XGMAC_VLAN_TAG);
+	if (tmp != readl(ioaddr + XGMAC_VLAN_TAG)) {
+		writel(tmp, ioaddr + XGMAC_VLAN_TAG);
+		return true;
+	}
+
+	return false;
 }
 
 static int dwxgmac2_get_hw_feature(void __iomem *ioaddr,
@@ -481,14 +539,35 @@ static int dwxgmac2_get_hw_feature(void __iomem *ioaddr,
 	dma_cap->estsel = (hw_cap & XGMAC_HWFEAT_ESTSEL) >> 19;
 	dma_cap->ttsfd = (hw_cap & XGMAC_HWFEAT_TTSFD) >> 16;
 	dma_cap->asp = (hw_cap & XGMAC_HWFEAT_ASP) >> 14;
+
+	/* Double VLAN Tagging (flag is unavailable prior DW XGMAC v3.00a) */
 	dma_cap->dvlan = (hw_cap & XGMAC_HWFEAT_DVLAN) >> 13;
+	if (!dma_cap->dvlan)
+		dma_cap->dvlan = dwxgmac2_det_hw_dvlan(ioaddr);
+
 	dma_cap->frpes = (hw_cap & XGMAC_HWFEAT_FRPES) >> 11;
 	dma_cap->frpbs = (hw_cap & XGMAC_HWFEAT_FRPPB) >> 9;
 	dma_cap->pou_ost_en = (hw_cap & XGMAC_HWFEAT_POUOST) >> 8;
 	dma_cap->frppipe_num = ((hw_cap & XGMAC_HWFEAT_FRPPIPE) >> 5) + 1;
 	dma_cap->cbtisel = (hw_cap & XGMAC_HWFEAT_CBTISEL) >> 4;
 	dma_cap->frpsel = (hw_cap & XGMAC_HWFEAT_FRPSEL) >> 3;
+
+	/* Number of Extended VLAN Tag Filters */
 	dma_cap->nrvf_num = (hw_cap & XGMAC_HWFEAT_NRVF) >> 0;
+	switch (dma_cap->nrvf_num) {
+	case 1 ... 3:
+		dma_cap->nrvf_num = 1 << (dma_cap->nrvf_num + 1);
+		break;
+	case 4:
+		dma_cap->nrvf_num = 24;
+		break;
+	case 5:
+		dma_cap->nrvf_num = 32;
+		break;
+	default:
+		dma_cap->nrvf_num = 0;
+		break;
+	}
 
 	/* MAC HW feature 4 */
 	hw_cap = readl(ioaddr + XGMAC_HW_FEATURE4);
@@ -610,6 +689,25 @@ static int dwxgmac2_enable_tbs(struct stmmac_priv *priv, void __iomem *ioaddr,
 	return 0;
 }
 
+static void dwxgmac2_dma_diagnostic_fr(struct stmmac_priv *priv, void __iomem *ioaddr,
+				       struct stmmac_extra_stats *x, u32 chan)
+{
+	u32 value = readl(ioaddr + XGMAC_MTL_RXQ_MISSED_PKT_CTR(chan));
+	unsigned long cntr;
+
+	cntr = FIELD_GET(XGMAC_MISPKTCNT, value);
+	if (value & XGMAC_MISCNTOVF)
+		cntr += FIELD_MAX(XGMAC_MISPKTCNT) + 1;
+
+	x->rx_missed_cntr += cntr;
+
+	cntr = FIELD_GET(XGMAC_OVFPKTCNT, value);
+	if (value & XGMAC_OVFCNTOVF)
+		cntr += FIELD_MAX(XGMAC_OVFPKTCNT) + 1;
+
+	x->rx_overflow_cntr += cntr;
+}
+
 const struct stmmac_dma_ops dwxgmac210_dma_ops = {
 	.reset = dwxgmac2_dma_reset,
 	.init = dwxgmac2_dma_init,
@@ -620,6 +718,7 @@ const struct stmmac_dma_ops dwxgmac210_dma_ops = {
 	.dump_regs = dwxgmac2_dma_dump_regs,
 	.dma_rx_mode = dwxgmac2_dma_rx_mode,
 	.dma_tx_mode = dwxgmac2_dma_tx_mode,
+	.dma_diagnostic_fr = dwxgmac2_dma_diagnostic_fr,
 	.enable_dma_irq = dwxgmac2_enable_dma_irq,
 	.disable_dma_irq = dwxgmac2_disable_dma_irq,
 	.start_tx = dwxgmac2_dma_start_tx,

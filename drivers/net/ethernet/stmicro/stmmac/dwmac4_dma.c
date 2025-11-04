@@ -67,6 +67,30 @@ static void dwmac4_dma_axi(void __iomem *ioaddr, struct stmmac_axi *axi)
 	}
 
 	writel(value, ioaddr + DMA_SYS_BUS_MODE);
+
+	if (axi->axi_cc) {
+		writel(STMMAC_AXI_ACE(DMA, TX_AR_THD,  D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, TX_AR_THC,  AR_WbNa) |
+		       STMMAC_AXI_ACE(DMA, TX_AR_TED,  D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, TX_AR_TEC,  AR_WbNa) |
+		       STMMAC_AXI_ACE(DMA, TX_AR_TDRD, D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, TX_AR_TDRC, AR_WbNa),
+		       ioaddr + DMA_AXI_TX_AR_ACE_CTRL);
+		writel(STMMAC_AXI_ACE(DMA, RX_AW_RDD,  D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RDC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RHD,  D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RHC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RPD,  D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RPC,  AW_WbNa) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RDWD, D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, RX_AW_RDWC, AW_WbNa),
+		       ioaddr + DMA_AXI_RX_AW_ACE_CTRL);
+		writel(STMMAC_AXI_ACE(DMA, TXRX_AWAR_RDRD, D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, TXRX_AWAR_RDRC, AR_WbNa) |
+		       STMMAC_AXI_ACE(DMA, TXRX_AWAR_TDWD, D_OUTS) |
+		       STMMAC_AXI_ACE(DMA, TXRX_AWAR_TDWC, AW_WbNa),
+		       ioaddr + DMA_AXI_TXRX_AWAR_ACE_CTRL);
+	}
 }
 
 static void dwmac4_dma_init_rx_chan(struct stmmac_priv *priv,
@@ -131,6 +155,10 @@ static void dwmac4_dma_init_channel(struct stmmac_priv *priv,
 	/* Mask interrupts by writing to CSR7 */
 	writel(DMA_CHAN_INTR_DEFAULT_MASK,
 	       ioaddr + DMA_CHAN_INTR_ENA(dwmac4_addrs, chan));
+
+	/* Enable interrupts by writing to MTL INT CSR */
+	writel(MTL_INT_DEFAULT_ENABLE,
+	       ioaddr + MTL_CHAN_INT_CTRL(dwmac4_addrs, chan));
 }
 
 static void dwmac410_dma_init_channel(struct stmmac_priv *priv,
@@ -150,6 +178,10 @@ static void dwmac410_dma_init_channel(struct stmmac_priv *priv,
 	/* Mask interrupts by writing to CSR7 */
 	writel(DMA_CHAN_INTR_DEFAULT_MASK_4_10,
 	       ioaddr + DMA_CHAN_INTR_ENA(dwmac4_addrs, chan));
+
+	/* Enable interrupts by writing to MTL INT CSR */
+	writel(MTL_INT_DEFAULT_ENABLE,
+	       ioaddr + MTL_CHAN_INT_CTRL(dwmac4_addrs, chan));
 }
 
 static void dwmac4_dma_init(void __iomem *ioaddr,
@@ -260,7 +292,8 @@ static void dwmac4_rx_watchdog(struct stmmac_priv *priv, void __iomem *ioaddr,
 
 static void dwmac4_dma_rx_chan_op_mode(struct stmmac_priv *priv,
 				       void __iomem *ioaddr, int mode,
-				       u32 channel, int fifosz, u8 qmode)
+				       u32 channel, int fifosz, u8 qmode,
+				       bool rxall)
 {
 	const struct dwmac4_addrs *dwmac4_addrs = priv->plat->dwmac4_addrs;
 	unsigned int rqs = fifosz / 256 - 1;
@@ -284,6 +317,12 @@ static void dwmac4_dma_rx_chan_op_mode(struct stmmac_priv *priv,
 		else
 			mtl_rx_op |= MTL_OP_MODE_RTC_128;
 	}
+
+	/* Permit errorneous frames (IP/TCP/UDP csum, overflow, giant, etc) */
+	if (rxall)
+		mtl_rx_op |= MTL_OP_MODE_DT | MTL_OP_MODE_FEP | MTL_OP_MODE_FUP;
+	else
+		mtl_rx_op &= ~(MTL_OP_MODE_DT | MTL_OP_MODE_FEP | MTL_OP_MODE_FUP);
 
 	mtl_rx_op &= ~MTL_OP_MODE_RQS_MASK;
 	mtl_rx_op |= rqs << MTL_OP_MODE_RQS_SHIFT;
@@ -473,6 +512,23 @@ static int dwmac4_get_hw_feature(void __iomem *ioaddr,
 	dma_cap->frpsel = (hw_cap & GMAC_HW_FEAT_FRPSEL) >> 10;
 	dma_cap->dvlan = (hw_cap & GMAC_HW_FEAT_DVLAN) >> 5;
 
+	/* Number of Extended VLAN Tag Filters */
+	dma_cap->nrvf_num = (hw_cap & GMAC_HW_FEAT_NRVF) >> 0;
+	switch (dma_cap->nrvf_num) {
+	case 1 ... 3:
+		dma_cap->nrvf_num = 1 << (dma_cap->nrvf_num + 1);
+		break;
+	case 4:
+		dma_cap->nrvf_num = 24;
+		break;
+	case 5:
+		dma_cap->nrvf_num = 32;
+		break;
+	default:
+		dma_cap->nrvf_num = 0;
+		break;
+	}
+
 	return 0;
 }
 
@@ -569,6 +625,26 @@ static int dwmac4_enable_tbs(struct stmmac_priv *priv, void __iomem *ioaddr,
 	return 0;
 }
 
+static void dwmac4_dma_diagnostic_fr(struct stmmac_priv *priv, void __iomem *ioaddr,
+				     struct stmmac_extra_stats *x, u32 chan)
+{
+	const struct dwmac4_addrs *dwmac4_addrs = priv->plat->dwmac4_addrs;
+	u32 value = readl(ioaddr + MTL_CHAN_RX_MISSED_PKT_CTR(dwmac4_addrs, chan));
+	unsigned long cntr;
+
+	cntr = FIELD_GET(MTL_MISSED_PKT_MISPKTCNT, value);
+	if (value & MTL_MISSED_PKT_MISCNTOVF)
+		cntr += FIELD_MAX(MTL_MISSED_PKT_MISPKTCNT) + 1;
+
+	x->rx_missed_cntr += cntr;
+
+	cntr = FIELD_GET(MTL_MISSED_PKT_OVFPKTCNT, value);
+	if (value & MTL_MISSED_PKT_OVFCNTOVF)
+		cntr += FIELD_MAX(MTL_MISSED_PKT_OVFPKTCNT) + 1;
+
+	x->rx_overflow_cntr += cntr;
+}
+
 const struct stmmac_dma_ops dwmac4_dma_ops = {
 	.reset = dwmac4_dma_reset,
 	.init = dwmac4_dma_init,
@@ -579,6 +655,7 @@ const struct stmmac_dma_ops dwmac4_dma_ops = {
 	.dump_regs = dwmac4_dump_dma_regs,
 	.dma_rx_mode = dwmac4_dma_rx_chan_op_mode,
 	.dma_tx_mode = dwmac4_dma_tx_chan_op_mode,
+	.dma_diagnostic_fr = dwmac4_dma_diagnostic_fr,
 	.enable_dma_irq = dwmac4_enable_dma_irq,
 	.disable_dma_irq = dwmac4_disable_dma_irq,
 	.start_tx = dwmac4_dma_start_tx,
@@ -608,8 +685,9 @@ const struct stmmac_dma_ops dwmac410_dma_ops = {
 	.dump_regs = dwmac4_dump_dma_regs,
 	.dma_rx_mode = dwmac4_dma_rx_chan_op_mode,
 	.dma_tx_mode = dwmac4_dma_tx_chan_op_mode,
+	.dma_diagnostic_fr = dwmac4_dma_diagnostic_fr,
 	.enable_dma_irq = dwmac410_enable_dma_irq,
-	.disable_dma_irq = dwmac4_disable_dma_irq,
+	.disable_dma_irq = dwmac410_disable_dma_irq,
 	.start_tx = dwmac4_dma_start_tx,
 	.stop_tx = dwmac4_dma_stop_tx,
 	.start_rx = dwmac4_dma_start_rx,

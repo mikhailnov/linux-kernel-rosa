@@ -210,7 +210,11 @@ static void qrk_serial_setup_dma(struct lpss8250 *lpss, struct uart_port *port)
 	chip->pdata = &qrk_serial_dma_pdata;
 	chip->dev = &pdev->dev;
 	chip->id = pdev->devfn;
-	chip->irq = pci_irq_vector(pdev, 0);
+	chip->irq_num = 1;
+	chip->irq = devm_kzalloc(&pdev->dev, sizeof(int), GFP_KERNEL);
+	if (!chip->irq)
+		return;
+	chip->irq[0] = pci_irq_vector(pdev, 0);
 	chip->regs = pci_ioremap_bar(pdev, 1);
 	if (!chip->regs)
 		return;

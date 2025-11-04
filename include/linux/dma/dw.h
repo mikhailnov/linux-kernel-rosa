@@ -30,7 +30,8 @@ struct dw_dma;
 struct dw_dma_chip {
 	struct device	*dev;
 	int		id;
-	int		irq;
+	int		*irq;
+	int		irq_num;
 	void __iomem	*regs;
 	struct clk	*clk;
 	struct dw_dma	*dw;

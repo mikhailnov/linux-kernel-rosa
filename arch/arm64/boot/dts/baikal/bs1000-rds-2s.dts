@@ -1,0 +1,734 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Device tree source for Baikal Electronics RDS-2S dual-SoC board
+ * Copyright (C) 2023-2025 Baikal Electronics, JSC
+ */
+
+/dts-v1/;
+
+#include "bs1000.dtsi"
+
+/ {
+	model = "Baikal Electronics RDS-2S";
+	compatible = "baikal,rds-2s", "baikal,bs1000";
+
+	aliases {
+		ethernet0 = &soc0_gmac0;
+		ethernet1 = &soc0_gmac1;
+		ethernet2 = &soc1_gmac0;
+		ethernet3 = &soc1_gmac1;
+		serial3	  = &soc1_uart_a1;
+	};
+
+	chosen { };
+
+	/* SoC1 */
+
+	cpus {
+		cpu-map {
+			socket1 {
+				CA75_CLUSTER(1,0,48,49,50,51);
+				CA75_CLUSTER(1,1,52,53,54,55);
+				CA75_CLUSTER(1,2,56,57,58,59);
+				CA75_CLUSTER(1,3,60,61,62,63);
+				CA75_CLUSTER(1,4,64,65,66,67);
+				CA75_CLUSTER(1,5,68,69,70,71);
+				CA75_CLUSTER(1,6,72,73,74,75);
+				CA75_CLUSTER(1,7,76,77,78,79);
+				CA75_CLUSTER(1,8,80,81,82,83);
+				CA75_CLUSTER(1,9,84,85,86,87);
+				CA75_CLUSTER(1,10,88,89,90,91);
+				CA75_CLUSTER(1,11,92,93,94,95);
+
+				soc1_l4: l4-cache {
+					cache-size = <0x2000000>;
+					cache-unified;
+					cache-level = <4>;
+				};
+			};
+		};
+
+		CA75_CPU(1,0,48,00000);
+		CA75_CPU(1,0,49,00100);
+		CA75_CPU(1,0,50,00200);
+		CA75_CPU(1,0,51,00300);
+		CA75_CPU(1,1,52,10000);
+		CA75_CPU(1,1,53,10100);
+		CA75_CPU(1,1,54,10200);
+		CA75_CPU(1,1,55,10300);
+		CA75_CPU(1,2,56,20000);
+		CA75_CPU(1,2,57,20100);
+		CA75_CPU(1,2,58,20200);
+		CA75_CPU(1,2,59,20300);
+		CA75_CPU(1,3,60,30000);
+		CA75_CPU(1,3,61,30100);
+		CA75_CPU(1,3,62,30200);
+		CA75_CPU(1,3,63,30300);
+		CA75_CPU(1,4,64,40000);
+		CA75_CPU(1,4,65,40100);
+		CA75_CPU(1,4,66,40200);
+		CA75_CPU(1,4,67,40300);
+		CA75_CPU(1,5,68,50000);
+		CA75_CPU(1,5,69,50100);
+		CA75_CPU(1,5,70,50200);
+		CA75_CPU(1,5,71,50300);
+		CA75_CPU(1,6,72,60000);
+		CA75_CPU(1,6,73,60100);
+		CA75_CPU(1,6,74,60200);
+		CA75_CPU(1,6,75,60300);
+		CA75_CPU(1,7,76,70000);
+		CA75_CPU(1,7,77,70100);
+		CA75_CPU(1,7,78,70200);
+		CA75_CPU(1,7,79,70300);
+		CA75_CPU(1,8,80,80000);
+		CA75_CPU(1,8,81,80100);
+		CA75_CPU(1,8,82,80200);
+		CA75_CPU(1,8,83,80300);
+		CA75_CPU(1,9,84,90000);
+		CA75_CPU(1,9,85,90100);
+		CA75_CPU(1,9,86,90200);
+		CA75_CPU(1,9,87,90300);
+		CA75_CPU(1,10,88,a0000);
+		CA75_CPU(1,10,89,a0100);
+		CA75_CPU(1,10,90,a0200);
+		CA75_CPU(1,10,91,a0300);
+		CA75_CPU(1,11,92,b0000);
+		CA75_CPU(1,11,93,b0100);
+		CA75_CPU(1,11,94,b0200);
+		CA75_CPU(1,11,95,b0300);
+	};
+
+	distance-map {
+		compatible = "numa-distance-map-v1";
+		distance-matrix = <0 0 10>,
+				  <0 1 20>,
+				  <1 1 10>;
+	};
+
+	soc {
+		clocks {
+			CLOCKS(1,800);
+		};
+
+		SOC(1,800,320);
+
+#ifdef ENABLE_CORESIGHT
+		CA75_CORESIGHT(1,0,48,49,50,51,800,06,07);
+		CA75_CORESIGHT(1,1,52,53,54,55,800,0a,0b);
+		CA75_CORESIGHT(1,2,56,57,58,59,800,0e,0f);
+		CA75_CORESIGHT(1,3,60,61,62,63,800,12,13);
+		CA75_CORESIGHT(1,4,64,65,66,67,800,16,17);
+		CA75_CORESIGHT(1,5,68,69,70,71,800,1a,1b);
+		CA75_CORESIGHT(1,6,72,73,74,75,800,1e,1f);
+		CA75_CORESIGHT(1,7,76,77,78,79,800,22,23);
+		CA75_CORESIGHT(1,8,80,81,82,83,800,26,27);
+		CA75_CORESIGHT(1,9,84,85,86,87,800,2a,2b);
+		CA75_CORESIGHT(1,10,88,89,90,91,800,2e,2f);
+		CA75_CORESIGHT(1,11,92,93,94,95,800,32,33);
+
+		SOC_CORESIGHT(1,800);
+#endif
+	};
+
+	thermal-zones {
+		CA75_THERMAL(1,0,1,48,49,50,51);
+		CA75_THERMAL(1,1,2,52,53,54,55);
+		CA75_THERMAL(1,2,3,56,57,58,59);
+		CA75_THERMAL(1,3,4,60,61,62,63);
+		CA75_THERMAL(1,4,5,64,65,66,67);
+		CA75_THERMAL(1,5,6,68,69,70,71);
+		CA75_THERMAL(1,6,7,72,73,74,75);
+		CA75_THERMAL(1,7,8,76,77,78,79);
+		CA75_THERMAL(1,8,9,80,81,82,83);
+		CA75_THERMAL(1,9,10,84,85,86,87);
+		CA75_THERMAL(1,10,11,88,89,90,91);
+		CA75_THERMAL(1,11,12,92,93,94,95);
+		PVT_THERMAL(1,0);
+		PVT_THERMAL(1,13);
+		PVT_THERMAL(1,14);
+		PVT_THERMAL(1,15);
+		PVT_THERMAL(1,16);
+		PVT_THERMAL(1,17);
+		PVT_THERMAL(1,18);
+		PVT_THERMAL(1,19);
+		PVT_THERMAL(1,20);
+		PVT_THERMAL(1,21);
+		PVT_THERMAL(1,22);
+		PVT_THERMAL(1,23);
+	};
+};
+
+/* Add GICR and ITS */
+&gic {
+	#redistributor-regions = <2>;
+	reg = <0x0 0x1000000 0x0 0x10000>,	/* GICD */
+	      <0x0 0x1240000 0x0 0x600000>,	/* GICR */
+	      <0x800 0x1240000 0x0 0x600000>;	/* GICR */
+
+	soc1_its0: msi-controller@80001040000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1040000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its1: msi-controller@80001060000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1060000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its2: msi-controller@80001080000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1080000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its3: msi-controller@800010a0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x10a0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its4: msi-controller@800010c0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x10c0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its5: msi-controller@800010e0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x10e0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its6: msi-controller@80001100000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1100000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its7: msi-controller@80001120000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1120000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its8: msi-controller@80001140000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1140000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its9: msi-controller@80001160000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1160000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its10: msi-controller@80001180000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1180000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its11: msi-controller@800011a0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x11a0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its12: msi-controller@800011c0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x11c0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its13: msi-controller@800011e0000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x11e0000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its14: msi-controller@80001200000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1200000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+	soc1_its15: msi-controller@80001220000 {
+		compatible = "arm,gic-v3-its";
+		reg = <0x800 0x1220000 0x0 0x20000>;
+		msi-controller;
+		#msi-cells = <1>;
+		numa-node-id = <1>;
+	};
+};
+
+/* SoC0 */
+
+&soc0_ddrc0 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ddrc1 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ddrc2 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ddrc3 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ddrc4 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ddrc5 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc0_ehci {
+	status = "okay";
+};
+
+&soc0_gmac0 {
+	status = "okay";
+	phy-handle = <&ethphy0>;
+	phy-mode = "rgmii-rxid";
+};
+
+&soc0_gmac1 {
+	status = "okay";
+	phy-handle = <&ethphy1>;
+	phy-mode = "rgmii-rxid";
+};
+
+&soc0_gpio8_2 {
+	status = "okay";
+};
+
+&soc0_gpio16 {
+	status = "okay";
+};
+
+&soc0_gpio32 {
+	status = "okay";
+};
+
+&soc0_i2c2 {
+	status = "okay";
+};
+
+&soc0_i2c3 {
+	status = "okay";
+};
+
+&soc0_i2c4 {
+	status = "okay";
+
+	rtc@6f {
+		compatible = "microchip,mcp7940x";
+		reg = <0x6f>;
+	};
+};
+
+&soc0_i2c5 {
+	status = "okay";
+};
+
+&soc0_i2c6 {
+	status = "okay";
+};
+
+&soc0_mailbox_scmi_a2p {
+	status = "okay";
+};
+
+&soc0_mailbox_scmi_p2a {
+	status = "okay";
+};
+
+&soc0_mailbox_sms {
+	status = "okay";
+};
+
+&soc0_mdio0 {
+	reset-delay-us = <10200>;
+	reset-post-delay-us = <1000>;
+
+	ethphy0: ethernet-phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x1>;
+	};
+};
+
+&soc0_mdio1 {
+	reset-delay-us = <10200>;
+	reset-post-delay-us = <1000>;
+
+	ethphy1: ethernet-phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x1>;
+	};
+};
+
+&soc0_ohci {
+	status = "okay";
+};
+
+&soc0_pcie0_p0 {
+	status = "disabled"; /* RC is engaged in inter-SoC CCIX */
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie0_p0_ep;
+
+&soc0_pcie1_p0 {
+	status = "disabled"; /* RC is engaged in inter-SoC CCIX */
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie1_p0_ep;
+
+&soc0_pcie2_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc0_pcie2_p0_ep {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie2_p0_ep;
+
+&soc0_pcie3_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc0_pcie4_p0 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie4_p1 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie4_p2 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie4_p3 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_qspi1 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <12500000>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <1>;
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "BL1";
+				reg = <0x000000 0x20000>;
+			};
+
+			partition@20000 {
+				label = "DDR-FW";
+				reg = <0x020000 0x20000>;
+			};
+
+			partition@40000 {
+				label = "FIP";
+				reg = <0x40000 0x200000>;
+			};
+
+			partition@240000 {
+				label = "DDR-CFG0";
+				reg = <0x240000 0x40000>;
+			};
+
+			partition@280000 {
+				label = "DDR-CFG1";
+				reg = <0x280000 0x40000>;
+			};
+
+			partition@2c0000 {
+				label = "UEFI vars";
+				reg = <0x2c0000 0xc0000>;
+			};
+
+			partition@380000 {
+				label = "FAT";
+				reg = <0x380000 0x3c80000>;
+			};
+		};
+	};
+};
+
+&soc0_timer1 {
+	status = "okay";
+};
+
+&soc0_timer2 {
+	status = "okay";
+};
+
+&soc0_timer3 {
+	status = "okay";
+};
+
+&soc0_timer4 {
+	status = "okay";
+};
+
+&soc0_uart_a1 {
+	status = "okay";
+};
+
+&soc0_uart_s {
+	status = "okay";
+};
+
+&soc0_wdt {
+	status = "okay";
+};
+
+/* SoC1 */
+
+&soc1_ddrc0 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ddrc1 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ddrc2 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ddrc3 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ddrc4 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ddrc5 {
+	/* DDRC interrupts don't fit into interrupt map */
+	/delete-property/ interrupts;
+};
+
+&soc1_ehci {
+	status = "okay";
+};
+
+&soc1_gmac0 {
+	status = "okay";
+	phy-handle = <&ethphy2>;
+	phy-mode = "rgmii-rxid";
+};
+
+&soc1_gmac1 {
+	status = "okay";
+	phy-handle = <&ethphy3>;
+	phy-mode = "rgmii-rxid";
+};
+
+&soc1_gpio8_1 {
+	status = "okay";
+};
+
+&soc1_gpio8_2 {
+	status = "okay";
+};
+
+&soc1_gpio16 {
+	status = "okay";
+};
+
+&soc1_gpio32 {
+	status = "okay";
+};
+
+&soc1_i2c2 {
+	status = "okay";
+};
+
+&soc1_i2c3 {
+	status = "okay";
+};
+
+&soc1_i2c4 {
+	status = "okay";
+};
+
+&soc1_mailbox_scmi_a2p {
+	status = "okay";
+};
+
+&soc1_mailbox_scmi_p2a {
+	status = "okay";
+};
+
+&soc1_mailbox_sms {
+	status = "okay";
+};
+
+&soc1_mdio0 {
+	reset-delay-us = <10200>;
+	reset-post-delay-us = <1000>;
+
+	ethphy2: ethernet-phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x1>;
+	};
+};
+
+&soc1_mdio1 {
+	reset-delay-us = <10200>;
+	reset-post-delay-us = <1000>;
+
+	ethphy3: ethernet-phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x1>;
+	};
+};
+
+&soc1_ohci {
+	status = "okay";
+};
+
+&soc1_pcie0_p0 {
+	status = "disabled"; /* RC is engaged in inter-SoC CCIX */
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc1_pcie0_p0_ep;
+
+&soc1_pcie1_p0 {
+	status = "disabled"; /* RC is engaged in inter-SoC CCIX */
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc1_pcie1_p0_ep;
+
+&soc1_pcie2_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc1_pcie2_p0_ep {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc1_pcie2_p0_ep;
+
+&soc1_pcie3_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc1_pcie4_p0 {
+	status = "okay";
+	num-lanes = <8>;
+	/delete-property/ interrupts; /* PCIe4 interrupts are out of SoC1 range */
+	/delete-property/ interrupt-names;
+};
+
+&soc1_pcie4_p2 {
+	status = "okay";
+	num-lanes = <8>;
+	/delete-property/ interrupts; /* PCIe4 interrupts are out of SoC1 range */
+	/delete-property/ interrupt-names;
+};
+
+&soc1_qspi1 {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		spi-max-frequency = <12500000>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <1>;
+		status = "okay";
+	};
+};
+
+&soc1_timer1 {
+	status = "okay";
+};
+
+&soc1_timer2 {
+	status = "okay";
+};
+
+&soc1_timer3 {
+	status = "okay";
+};
+
+&soc1_timer4 {
+	status = "okay";
+};
+
+&soc1_uart_a1 {
+	status = "okay";
+};
+
+&soc1_wdt {
+	status = "okay";
+};
+
+&wdt {
+	status = "okay";
+};

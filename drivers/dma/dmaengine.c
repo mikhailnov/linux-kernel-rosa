@@ -1152,7 +1152,8 @@ int dma_async_device_register(struct dma_device *device)
 		return -EIO;
 	}
 
-	device->owner = device->dev->driver->owner;
+	if (device->dev->driver)
+		device->owner = device->dev->driver->owner;
 
 #define CHECK_CAP(_name, _type)								\
 {											\

@@ -12,6 +12,10 @@ obj-y				+= layouts/
 # Devices
 obj-$(CONFIG_NVMEM_APPLE_EFUSES)	+= nvmem-apple-efuses.o
 nvmem-apple-efuses-y 			:= apple-efuses.o
+nvmem-bs1000-efuse-y			:= bs1000-efuse.o
+obj-$(CONFIG_NVMEM_BS1000_EFUSE)	+= nvmem-bs1000-efuse.o bs1000-efuse-core.o
+nvmem-bs1000-efuse-acpi-y		:= bs1000-efuse-acpi.o
+obj-$(CONFIG_NVMEM_BS1000_EFUSE_ACPI)	+= nvmem-bs1000-efuse-acpi.o bs1000-efuse-core.o
 obj-$(CONFIG_NVMEM_BCM_OCOTP)		+= nvmem-bcm-ocotp.o
 nvmem-bcm-ocotp-y			:= bcm-ocotp.o
 obj-$(CONFIG_NVMEM_BRCM_NVRAM)		+= nvmem_brcm_nvram.o

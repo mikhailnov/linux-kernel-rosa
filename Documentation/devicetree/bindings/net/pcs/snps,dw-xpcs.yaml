@@ -41,6 +41,8 @@ properties:
         const: snps,dw-xpcs-gen5-10g
       - description: Synopsys DesignWare XPCS with Consumer Gen5 12G PMA
         const: snps,dw-xpcs-gen5-12g
+      - description: Baikal XPCS (DW XPCS with Consumer Gen5 10G PMA)
+        const: baikal,bm1000-xpcs
 
   reg:
     items:

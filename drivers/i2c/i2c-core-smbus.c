@@ -676,6 +676,63 @@ s32 i2c_smbus_read_i2c_block_data_or_emulated(const struct i2c_client *client,
 EXPORT_SYMBOL(i2c_smbus_read_i2c_block_data_or_emulated);
 
 /**
+ * i2c_smbus_write_i2c_block_data_or_emulated - write block or emulate
+ * @client: Handle to slave device
+ * @command: Byte interpreted by slave
+ * @length: Size of data block; SMBus allows at most I2C_SMBUS_BLOCK_MAX bytes
+ * @values: Byte array which data will be written. SMBus allows at most
+ *	I2C_SMBUS_BLOCK_MAX bytes.
+ *
+ * This executes the SMBus "write read" protocol if supported by the adapter.
+ * If block write is not supported, it emulates it using either word or byte
+ * write protocols depending on availability.
+ *
+ * The addresses of the I2C slave device that are accessed with this function
+ * must be mapped to a linear region, so that a block write will have the same
+ * effect as a byte write. Before using this function you must double-check
+ * if the I2C slave does support exchanging a block transfer with a byte
+ * transfer.
+ */
+s32 i2c_smbus_write_i2c_block_data_or_emulated(const struct i2c_client *client,
+					       u8 command, u8 length, const u8 *values)
+{
+	u16 data;
+	u8 i = 0;
+	int status;
+
+	if (length > I2C_SMBUS_BLOCK_MAX)
+		length = I2C_SMBUS_BLOCK_MAX;
+
+	if (i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_WRITE_I2C_BLOCK)) {
+		status = i2c_smbus_write_i2c_block_data(client, command, length, values);
+		return status ?: length;
+	}
+
+	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_WRITE_BYTE_DATA))
+		return -EOPNOTSUPP;
+
+	if (i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_WRITE_WORD_DATA)) {
+		while ((i + 2) <= length) {
+			data = values[i] | (values[i + 1] << 8);
+			status = i2c_smbus_write_word_data(client, command + i, data);
+			if (status < 0)
+				return status;
+			i += 2;
+		}
+	}
+
+	while (i < length) {
+		status = i2c_smbus_write_byte_data(client, command + i, values[i]);
+		if (status < 0)
+			return status;
+		i++;
+	}
+
+	return i;
+}
+EXPORT_SYMBOL(i2c_smbus_write_i2c_block_data_or_emulated);
+
+/**
  * i2c_new_smbus_alert_device - get ara client for SMBus alert support
  * @adapter: the target adapter
  * @setup: setup data for the SMBus alert handler

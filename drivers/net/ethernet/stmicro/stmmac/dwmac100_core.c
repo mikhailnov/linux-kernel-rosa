@@ -48,11 +48,6 @@ static void dwmac100_dump_mac_regs(struct mac_device_info *hw, u32 *reg_space)
 	reg_space[MAC_VLAN2 / 4] = readl(ioaddr + MAC_VLAN2);
 }
 
-static int dwmac100_rx_ipc_enable(struct mac_device_info *hw)
-{
-	return 0;
-}
-
 static int dwmac100_irq_status(struct mac_device_info *hw,
 			       struct stmmac_extra_stats *x)
 {
@@ -157,7 +152,6 @@ static void dwmac100_set_mac_loopback(void __iomem *ioaddr, bool enable)
 const struct stmmac_ops dwmac100_ops = {
 	.core_init = dwmac100_core_init,
 	.set_mac = stmmac_set_mac,
-	.rx_ipc = dwmac100_rx_ipc_enable,
 	.dump_regs = dwmac100_dump_mac_regs,
 	.host_irq_status = dwmac100_irq_status,
 	.set_filter = dwmac100_set_filter,

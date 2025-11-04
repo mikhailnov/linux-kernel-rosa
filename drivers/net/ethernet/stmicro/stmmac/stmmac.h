@@ -11,6 +11,7 @@
 
 #define STMMAC_RESOURCE_NAME   "stmmaceth"
 
+#include <linux/bitops.h>
 #include <linux/clk.h>
 #include <linux/hrtimer.h>
 #include <linux/if_vlan.h>
@@ -21,6 +22,7 @@
 #include <linux/ptp_clock_kernel.h>
 #include <linux/net_tstamp.h>
 #include <linux/reset.h>
+#include <linux/workqueue.h>
 #include <net/page_pool/types.h>
 #include <net/xdp.h>
 #include <uapi/linux/bpf.h>
@@ -38,6 +40,43 @@ struct stmmac_resources {
 	int tx_irq[MTL_MAX_TX_QUEUES];
 };
 
+enum stmmac_state {
+	STMMAC_STATE_RESET,
+	STMMAC_STATE_RESET_RX,
+	STMMAC_STATE_RESET_TX,
+	STMMAC_STATE_DROP_RTC,
+	STMMAC_STATE_BUMP_TTC,
+	STMMAC_STATE_RESUME_TX,
+	STMMAC_STATE_COUNT
+};
+
+#define stmmac_set_state(_priv, _state) \
+	test_and_set_bit(STMMAC_STATE_ ## _state, (_priv)->state)
+
+#define stmmac_get_state(_priv, _state) \
+	test_bit(STMMAC_STATE_ ## _state, (_priv)->state)
+
+#define stmmac_clr_state(_priv, _state) \
+	test_and_clear_bit(STMMAC_STATE_ ## _state, (_priv)->state)
+
+#define stmmac_srv_state(_priv, _state)						\
+	({									\
+		if (!stmmac_set_state(_priv, _state))				\
+			queue_work((_priv)->state_wq, &(_priv)->state_work);	\
+	})
+
+#define stmmac_sch_state(_priv, _ch, _state)					\
+	({									\
+		if (!stmmac_set_state(&(_priv)->channel[(_ch)], _state))	\
+			queue_work((_priv)->state_wq, &(_priv)->state_work);	\
+	})
+
+#define stmmac_fls_state(_priv, _state)						\
+	({									\
+		if (stmmac_clr_state(_priv, _state))				\
+			flush_work(&(_priv)->state_work);			\
+	})
+
 enum stmmac_txbuf_type {
 	STMMAC_TXBUF_T_SKB,
 	STMMAC_TXBUF_T_XDP_TX,
@@ -50,7 +89,6 @@ struct stmmac_tx_info {
 	bool map_as_page;
 	unsigned len;
 	bool last_segment;
-	bool is_jumbo;
 	enum stmmac_txbuf_type buf_type;
 	struct xsk_tx_metadata_compl xsk_meta;
 };
@@ -80,6 +118,8 @@ struct stmmac_tx_queue {
 	dma_addr_t dma_tx_phy;
 	dma_addr_t tx_tail_addr;
 	u32 mss;
+	u16 tci;
+	u16 ttc;
 };
 
 struct stmmac_rx_buffer {
@@ -88,11 +128,14 @@ struct stmmac_rx_buffer {
 			struct page *page;
 			dma_addr_t addr;
 			__u32 page_offset;
+			__u32 frame_offset;
+			__u32 frag_offset;
 		};
 		struct xdp_buff *xdp;
 	};
 	struct page *sec_page;
 	dma_addr_t sec_addr;
+	__u32 sec_page_offset;
 };
 
 struct stmmac_xdp_buff {
@@ -119,6 +162,7 @@ struct stmmac_rx_queue {
 	struct xdp_rxq_info xdp_rxq;
 	struct xsk_buff_pool *xsk_pool;
 	struct page_pool *page_pool;
+	struct page_pool *sec_page_pool;
 	struct stmmac_rx_buffer *buf_pool;
 	struct stmmac_priv *priv_data;
 	struct dma_extended_desc *dma_erx;
@@ -126,9 +170,10 @@ struct stmmac_rx_queue {
 	unsigned int cur_rx;
 	unsigned int dirty_rx;
 	unsigned int buf_alloc_num;
-	u32 rx_zeroc_thresh;
+	unsigned int napi_skb_frag_size;
 	dma_addr_t dma_rx_phy;
 	u32 rx_tail_addr;
+	u16 rtc;
 	unsigned int state_saved;
 	struct {
 		struct sk_buff *skb;
@@ -138,6 +183,7 @@ struct stmmac_rx_queue {
 };
 
 struct stmmac_channel {
+	unsigned long state[BITS_TO_LONGS(STMMAC_STATE_COUNT)];
 	struct napi_struct rx_napi ____cacheline_aligned_in_smp;
 	struct napi_struct tx_napi ____cacheline_aligned_in_smp;
 	struct napi_struct rxtx_napi ____cacheline_aligned_in_smp;
@@ -204,7 +250,6 @@ struct stmmac_pps_cfg {
 };
 
 struct stmmac_rss {
-	int enable;
 	u8 key[STMMAC_RSS_HASH_KEY_SIZE];
 	u32 table[STMMAC_RSS_MAX_TABLE_SIZE];
 };
@@ -239,10 +284,12 @@ struct stmmac_dma_conf {
 	unsigned int dma_buf_sz;
 
 	/* RX Queue */
+	unsigned int rx_queue_max;
 	struct stmmac_rx_queue rx_queue[MTL_MAX_RX_QUEUES];
 	unsigned int dma_rx_size;
 
 	/* TX Queue */
+	unsigned int tx_queue_max;
 	struct stmmac_tx_queue tx_queue[MTL_MAX_TX_QUEUES];
 	unsigned int dma_tx_size;
 };
@@ -263,15 +310,19 @@ struct stmmac_est {
 
 struct stmmac_priv {
 	/* Frequently used values are kept adjacent for cache effect */
+
+	/* Device state-flags and work-task handling them */
+	unsigned long state[BITS_TO_LONGS(STMMAC_STATE_COUNT)];
+	struct workqueue_struct *state_wq;
+	struct work_struct state_work;
+
 	u32 tx_coal_frames[MTL_MAX_TX_QUEUES];
 	u32 tx_coal_timer[MTL_MAX_TX_QUEUES];
 	u32 rx_coal_frames[MTL_MAX_TX_QUEUES];
 
 	int hwts_tx_en;
 	bool tx_path_in_lpi_mode;
-	bool tso;
 	int sph;
-	int sph_cap;
 	u32 sarc_type;
 
 	unsigned int rx_copybreak;
@@ -341,7 +392,10 @@ struct stmmac_priv {
 	void __iomem *mmcaddr;
 	void __iomem *ptpaddr;
 	void __iomem *estaddr;
-	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
+
+	DECLARE_BITMAP(active_cvlans, VLAN_N_VID);
+	DECLARE_BITMAP(active_svlans, VLAN_N_VID);
+
 	int sfty_irq;
 	int sfty_ce_irq;
 	int sfty_ue_irq;
@@ -360,10 +414,6 @@ struct stmmac_priv {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
 #endif
-
-	unsigned long state;
-	struct workqueue_struct *wq;
-	struct work_struct service_task;
 
 	/* Frame Preemption feature (FPE) */
 	struct stmmac_fpe_cfg fpe_cfg;
@@ -385,16 +435,13 @@ struct stmmac_priv {
 	/* Receive Side Scaling */
 	struct stmmac_rss rss;
 
+	/* ARP offload */
+	__be32 arp_addr;
+	struct notifier_block arp_cb;
+
 	/* XDP BPF Program */
 	unsigned long *af_xdp_zc_qps;
 	struct bpf_prog *xdp_prog;
-};
-
-enum stmmac_state {
-	STMMAC_DOWN,
-	STMMAC_RESET_REQUESTED,
-	STMMAC_RESETING,
-	STMMAC_SERVICE_SCHED,
 };
 
 int stmmac_mdio_unregister(struct net_device *ndev);
@@ -425,14 +472,6 @@ void stmmac_fpe_apply(struct stmmac_priv *priv);
 static inline bool stmmac_xdp_is_enabled(struct stmmac_priv *priv)
 {
 	return !!priv->xdp_prog;
-}
-
-static inline unsigned int stmmac_rx_offset(struct stmmac_priv *priv)
-{
-	if (stmmac_xdp_is_enabled(priv))
-		return XDP_PACKET_HEADROOM;
-
-	return 0;
 }
 
 void stmmac_disable_rx_queue(struct stmmac_priv *priv, u32 queue);

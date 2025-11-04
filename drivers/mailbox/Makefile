@@ -11,6 +11,10 @@ obj-$(CONFIG_ARM_MHU_V2)	+= arm_mhuv2.o
 
 obj-$(CONFIG_ARM_MHU_V3)	+= arm_mhuv3.o
 
+obj-$(CONFIG_BAIKAL_MBOX_SCMI)	+= baikal-mailbox-scmi.o
+
+obj-$(CONFIG_BAIKAL_MBOX_SMS)	+= baikal-mailbox-sms.o
+
 obj-$(CONFIG_IMX_MBOX)	+= imx-mailbox.o
 
 obj-$(CONFIG_ARMADA_37XX_RWTM_MBOX)	+= armada-37xx-rwtm-mailbox.o

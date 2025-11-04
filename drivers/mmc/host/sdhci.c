@@ -4061,7 +4061,8 @@ static int sdhci_set_dma_mask(struct sdhci_host *host)
 		host->flags &= ~SDHCI_USE_64_BIT_DMA;
 
 	/* Try 64-bit mask if hardware is capable  of it */
-	if (host->flags & SDHCI_USE_64_BIT_DMA) {
+	if (host->flags & SDHCI_USE_64_BIT_DMA &&
+	  !(host->quirks2 & SDHCI_QUIRK2_BROKEN_64_BIT_DMA_MASK)) {
 		ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
 		if (ret) {
 			pr_warn("%s: Failed to set 64-bit DMA mask.\n",

@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Device tree source for DBS-OV compatible boards:
+ *   - DBS-OV vA0
+ *
+ * Copyright (C) 2022-2025 Baikal Electronics, JSC
+ */
+
+/dts-v1/;
+
+#include "bs1000-dbs.dtsi"
+
+/ {
+	model = "Baikal Electronics DBS-OV";
+	compatible = "baikal,dbs-ov", "baikal,bs1000";
+};
+
+&soc0_pcie0_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc0_pcie0_p0_ep {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie0_p0_ep;
+
+&soc0_pcie1_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc0_pcie1_p0_ep {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie1_p0_ep;
+
+&soc0_pcie2_p0 {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+&soc0_pcie2_p0_ep {
+	status = "okay";
+	num-lanes = <16>;
+};
+
+/delete-node/ &soc0_pcie2_p0_ep;
+
+&soc0_pcie3_p0 {
+	status = "okay";
+	num-lanes = <8>;
+};
+
+&soc0_pcie3_p2 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie3_p3 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie4_p0 {
+	status = "okay";
+	num-lanes = <8>;
+};
+
+&soc0_pcie4_p2 {
+	status = "okay";
+	num-lanes = <4>;
+};
+
+&soc0_pcie4_p3 {
+	status = "okay";
+	num-lanes = <4>;
+};

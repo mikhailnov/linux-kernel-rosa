@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Device tree source for Baikal Electronics QEMU-M virtual platform
+ * Copyright (C) 2018-2025 Baikal Electronics, JSC
+ */
+
+/dts-v1/;
+
+#include "bm1000.dtsi"
+
+/ {
+	model = "Baikal Electronics QEMU-M";
+	compatible = "baikal,qemu-m", "baikal,bm1000";
+
+	aliases {
+		ethernet0 = &gmac0;
+		ethernet1 = &gmac1;
+	};
+
+	chosen { };
+
+	/*
+	 * Device is necessary for UEFI to boot on QEMU,
+	 * need to replace it with something later.
+	 */
+	flash@0 {
+		compatible = "cfi-flash";
+		reg = <0x0 0x4000000 0x0 0x4000000>;
+		bank-width = <0x4>;
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x00000000 0x80000000 0x0 0x80000000>; /* 2 GiB */
+	};
+
+	panel: panel {
+		compatible = "auo,b133htn01"; /* 1920x1080 */
+		port {
+			lcd_panel: endpoint {
+				remote-endpoint = <&vdu_pads>;
+			};
+		};
+	};
+};
+
+&gmac0 {
+	status = "okay";
+	phy-handle = <&ethphy0>;
+	phy-mode = "rgmii-rxid";
+};
+
+&gmac1 {
+	status = "okay";
+	phy-handle = <&ethphy1>;
+	phy-mode = "rgmii-rxid";
+};
+
+&mali {
+	status = "okay";
+};
+
+&mdio0 {
+	reset-delay-us = <10200>;
+	/* Due to a 10uf capacitor on a reset line */
+	reset-post-delay-us = <20000>;
+
+	ethphy0: ethernet-phy@3 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x3>;
+	};
+};
+
+&mdio1 {
+	reset-delay-us = <10200>;
+	/* Due to a 10uf capacitor on a reset line */
+	reset-post-delay-us = <20000>;
+
+	ethphy1: ethernet-phy@3 {
+		compatible = "ethernet-phy-ieee802.3-c22";
+		reg = <0x3>;
+	};
+};
+
+&mmc {
+	/* SD */
+	status = "okay";
+	bus-width = <4>;
+	max-frequency = <25000000>;
+	disable-wp;
+	no-mmc;
+	no-sdio;
+};
+
+&sata0 {
+	status = "okay";
+};
+
+&sata1 {
+	status = "okay";
+};
+
+&spi {
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <6250000>;
+		spi-tx-bus-width = <1>;
+		spi-rx-bus-width = <1>;
+		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "BL1";
+				reg = <0x000000 0x10000>;
+			};
+
+			partition@40000 {
+				label = "FIP";
+				reg = <0x40000 0x200000>;
+			};
+
+			partition@240000 {
+				label = "DDR-CFG0";
+				reg = <0x240000 0x40000>;
+			};
+
+			partition@280000 {
+				label = "DDR-CFG1";
+				reg = <0x280000 0x40000>;
+			};
+
+			partition@2c0000 {
+				label = "UEFI vars";
+				reg = <0x2c0000 0xc0000>;
+			};
+
+			partition@380000 {
+				label = "FAT";
+				reg = <0x380000 0x1c80000>;
+			};
+		};
+	};
+};
+
+&uart1 {
+	status = "okay";
+	clocks = <&avlsp_cmu0 1>, <&refclk200mhz>, <&refclk200mhz>;
+	clock-names = "soc_uartclk", "apb_pclk", "baudclk";
+};
+
+&vdu {
+	port {
+		vdu_pads: endpoint {
+			remote-endpoint = <&lcd_panel>;
+		};
+	};
+};

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (C) 2020 BAIKAL ELECTRONICS, JSC
+ * Copyright (C) 2020-2025 BAIKAL ELECTRONICS, JSC
  *
  * Authors:
  *   Maxim Kaurkin <maxim.kaurkin@baikalelectronics.ru>
  *   Serge Semin <Sergey.Semin@baikalelectronics.ru>
  *
- * Baikal-T1 Process, Voltage, Temperature sensor driver
+ * Baikal SoCs Process, Voltage, Temperature sensor drivers common code
  */
 
+#include <linux/acpi.h>
 #include <linux/bitfield.h>
 #include <linux/bitops.h>
 #include <linux/clk.h>
@@ -18,114 +19,35 @@
 #include <linux/hwmon-sysfs.h>
 #include <linux/hwmon.h>
 #include <linux/interrupt.h>
-#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/ktime.h>
 #include <linux/limits.h>
-#include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
-#include <linux/polynomial.h>
 #include <linux/seqlock.h>
 #include <linux/sysfs.h>
 #include <linux/types.h>
 
-#include "bt1-pvt.h"
+#include "baikal-pvt.h"
 
-/*
- * For the sake of the code simplification we created the sensors info table
- * with the sensor names, activation modes, threshold registers base address
- * and the thresholds bit fields.
- */
-static const struct pvt_sensor_info pvt_info[] = {
-	PVT_SENSOR_INFO(0, "CPU Core Temperature", hwmon_temp, TEMP, TTHRES),
-	PVT_SENSOR_INFO(0, "CPU Core Voltage", hwmon_in, VOLT, VTHRES),
-	PVT_SENSOR_INFO(1, "CPU Core Low-Vt", hwmon_in, LVT, LTHRES),
-	PVT_SENSOR_INFO(2, "CPU Core High-Vt", hwmon_in, HVT, HTHRES),
-	PVT_SENSOR_INFO(3, "CPU Core Standard-Vt", hwmon_in, SVT, STHRES),
-};
+#define PVT_THERMAL_POLLING_DELAY	5000
 
-/*
- * The original translation formulae of the temperature (in degrees of Celsius)
- * to PVT data and vice-versa are following:
- * N = 1.8322e-8*(T^4) + 2.343e-5*(T^3) + 8.7018e-3*(T^2) + 3.9269*(T^1) +
- *     1.7204e2,
- * T = -1.6743e-11*(N^4) + 8.1542e-8*(N^3) + -1.8201e-4*(N^2) +
- *     3.1020e-1*(N^1) - 4.838e1,
- * where T = [-48.380, 147.438]C and N = [0, 1023].
- * They must be accordingly altered to be suitable for the integer arithmetics.
- * The technique is called 'factor redistribution', which just makes sure the
- * multiplications and divisions are made so to have a result of the operations
- * within the integer numbers limit. In addition we need to translate the
- * formulae to accept millidegrees of Celsius. Here what they look like after
- * the alterations:
- * N = (18322e-20*(T^4) + 2343e-13*(T^3) + 87018e-9*(T^2) + 39269e-3*T +
- *     17204e2) / 1e4,
- * T = -16743e-12*(D^4) + 81542e-9*(D^3) - 182010e-6*(D^2) + 310200e-3*D -
- *     48380,
- * where T = [-48380, 147438] mC and N = [0, 1023].
- */
-static const struct polynomial __maybe_unused poly_temp_to_N = {
-	.total_divider = 10000,
-	.terms = {
-		{4, 18322, 10000, 10000},
-		{3, 2343, 10000, 10},
-		{2, 87018, 10000, 10},
-		{1, 39269, 1000, 1},
-		{0, 1720400, 1, 1}
-	}
-};
+#define PVT_THERMAL_CRIT	90000	/* 90 degrees default critical temperature limit */
+#define PVT_THERMAL_CRIT_HYST	2000
 
-static const struct polynomial poly_N_to_temp = {
-	.total_divider = 1,
-	.terms = {
-		{4, -16743, 1000, 1},
-		{3, 81542, 1000, 1},
-		{2, -182010, 1000, 1},
-		{1, 310200, 1000, 1},
-		{0, -48380, 1, 1}
-	}
-};
-
-/*
- * Similar alterations are performed for the voltage conversion equations.
- * The original formulae are:
- * N = 1.8658e3*V - 1.1572e3,
- * V = (N + 1.1572e3) / 1.8658e3,
- * where V = [0.620, 1.168] V and N = [0, 1023].
- * After the optimization they looks as follows:
- * N = (18658e-3*V - 11572) / 10,
- * V = N * 10^5 / 18658 + 11572 * 10^4 / 18658.
- */
-static const struct polynomial __maybe_unused poly_volt_to_N = {
-	.total_divider = 10,
-	.terms = {
-		{1, 18658, 1000, 1},
-		{0, -11572, 1, 1}
-	}
-};
-
-static const struct polynomial poly_N_to_volt = {
-	.total_divider = 10,
-	.terms = {
-		{1, 100000, 18658, 1},
-		{0, 115720000, 1, 18658}
-	}
-};
-
-static inline u32 pvt_update(void __iomem *reg, u32 mask, u32 data)
+static inline u32 pvt_update(struct pvt_hwmon *pvt, u32 reg, u32 mask, u32 data)
 {
 	u32 old;
 
-	old = readl_relaxed(reg);
-	writel((old & ~mask) | (data & mask), reg);
+	old = pvt->ops->read(pvt, reg);
+	pvt->ops->write(pvt, reg, (old & ~mask) | (data & mask));
 
 	return old & mask;
 }
 
 /*
- * Baikal-T1 PVT mode can be updated only when the controller is disabled.
+ * Baikal SoCs PVT mode can be updated only when the controller is disabled.
  * So first we disable it, then set the new mode together with the controller
  * getting back enabled. The same concerns the temperature trim and
  * measurements timeout. If it is necessary the interface mutex is supposed
@@ -137,9 +59,8 @@ static inline void pvt_set_mode(struct pvt_hwmon *pvt, u32 mode)
 
 	mode = FIELD_PREP(PVT_CTRL_MODE_MASK, mode);
 
-	old = pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_MODE_MASK | PVT_CTRL_EN,
-		   mode | old);
+	old = pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_MODE_MASK | PVT_CTRL_EN, mode | old);
 }
 
 static inline u32 pvt_calc_trim(long temp)
@@ -155,18 +76,17 @@ static inline void pvt_set_trim(struct pvt_hwmon *pvt, u32 trim)
 
 	trim = FIELD_PREP(PVT_CTRL_TRIM_MASK, trim);
 
-	old = pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_TRIM_MASK | PVT_CTRL_EN,
-		   trim | old);
+	old = pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_TRIM_MASK | PVT_CTRL_EN, trim | old);
 }
 
 static inline void pvt_set_tout(struct pvt_hwmon *pvt, u32 tout)
 {
 	u32 old;
 
-	old = pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	writel(tout, pvt->regs + PVT_TTIMEOUT);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, old);
+	old = pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt->ops->write(pvt, PVT_TTIMEOUT, tout);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, old);
 }
 
 /*
@@ -178,7 +98,7 @@ static inline void pvt_set_tout(struct pvt_hwmon *pvt, u32 tout)
  * IRQs being periodically raised to get the data cache/alarms status up to
  * date.
  *
- * Baikal-T1 PVT embedded controller is based on the Analog Bits PVT sensor,
+ * Baikal SoCs PVT embedded controller is based on the Analog Bits PVT sensor,
  * but is equipped with a dedicated control wrapper. It exposes the PVT
  * sub-block registers space via the APB3 bus. In addition the wrapper provides
  * a common interrupt vector of the sensors conversion completion events and
@@ -197,7 +117,7 @@ static inline void pvt_set_tout(struct pvt_hwmon *pvt, u32 tout)
  * performed on demand at the time a sensors input file is read.
  */
 
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
 
 #define pvt_hard_isr NULL
 
@@ -213,7 +133,7 @@ static irqreturn_t pvt_soft_isr(int irq, void *data)
 	 * status before the next conversion happens. Threshold events will be
 	 * handled a bit later.
 	 */
-	thres_sts = readl(pvt->regs + PVT_RAW_INTR_STAT);
+	thres_sts = pvt->ops->read(pvt, PVT_RAW_INTR_STAT);
 
 	/*
 	 * Then lets recharge the PVT interface with the next sampling mode.
@@ -221,7 +141,7 @@ static irqreturn_t pvt_soft_isr(int irq, void *data)
 	 * thresholds settings.
 	 */
 	cache = &pvt->cache[pvt->sensor];
-	info = &pvt_info[pvt->sensor];
+	info = &pvt->info[pvt->sensor];
 	pvt->sensor = (pvt->sensor == PVT_SENSOR_LAST) ?
 		      PVT_SENSOR_FIRST : (pvt->sensor + 1);
 
@@ -236,14 +156,13 @@ static irqreturn_t pvt_soft_isr(int irq, void *data)
 	 */
 	mutex_lock(&pvt->iface_mtx);
 
-	old = pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID,
-			 PVT_INTR_DVALID);
+	old = pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, PVT_INTR_DVALID);
 
-	val = readl(pvt->regs + PVT_DATA);
+	val = pvt->ops->read(pvt, PVT_DATA);
 
-	pvt_set_mode(pvt, pvt_info[pvt->sensor].mode);
+	pvt_set_mode(pvt, pvt->info[pvt->sensor].mode);
 
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID, old);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, old);
 
 	mutex_unlock(&pvt->iface_mtx);
 
@@ -268,10 +187,14 @@ static irqreturn_t pvt_soft_isr(int irq, void *data)
 		WRITE_ONCE(cache->thres_sts_lo, thres_sts & info->thres_sts_lo);
 		hwmon_notify_event(pvt->hwmon, info->type, info->attr_min_alarm,
 				   info->channel);
+		if (info->type == hwmon_temp)
+			thermal_zone_device_update(pvt->tzd, THERMAL_EVENT_UNSPECIFIED);
 	} else if ((thres_sts & info->thres_sts_hi) ^ cache->thres_sts_hi) {
 		WRITE_ONCE(cache->thres_sts_hi, thres_sts & info->thres_sts_hi);
 		hwmon_notify_event(pvt->hwmon, info->type, info->attr_max_alarm,
 				   info->channel);
+		if (info->type == hwmon_temp)
+			thermal_zone_device_update(pvt->tzd, THERMAL_EVENT_UNSPECIFIED);
 	}
 
 	return IRQ_HANDLED;
@@ -299,10 +222,7 @@ static int pvt_read_data(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 		data = cache->data;
 	} while (read_seqretry(&cache->data_seqlock, seq));
 
-	if (type == PVT_TEMP)
-		*val = polynomial_calc(&poly_N_to_temp, data);
-	else
-		*val = polynomial_calc(&poly_N_to_volt, data);
+	*val = pvt->ops->from_pvt(pvt, type, data);
 
 	return 0;
 }
@@ -313,17 +233,14 @@ static int pvt_read_limit(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	u32 data;
 
 	/* No need in serialization, since it is just read from MMIO. */
-	data = readl(pvt->regs + pvt_info[type].thres_base);
+	data = pvt->ops->read(pvt, pvt->info[type].thres_base);
 
 	if (is_low)
 		data = FIELD_GET(PVT_THRES_LO_MASK, data);
 	else
 		data = FIELD_GET(PVT_THRES_HI_MASK, data);
 
-	if (type == PVT_TEMP)
-		*val = polynomial_calc(&poly_N_to_temp, data);
-	else
-		*val = polynomial_calc(&poly_N_to_volt, data);
+	*val = pvt->ops->from_pvt(pvt, type, data);
 
 	return 0;
 }
@@ -334,13 +251,8 @@ static int pvt_write_limit(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	u32 data, limit, mask;
 	int ret;
 
-	if (type == PVT_TEMP) {
-		val = clamp(val, PVT_TEMP_MIN, PVT_TEMP_MAX);
-		data = polynomial_calc(&poly_temp_to_N, val);
-	} else {
-		val = clamp(val, PVT_VOLT_MIN, PVT_VOLT_MAX);
-		data = polynomial_calc(&poly_volt_to_N, val);
-	}
+	val = clamp(val, pvt->info[type].value_min, pvt->info[type].value_max);
+	data = pvt->ops->to_pvt(pvt, type, val);
 
 	/* Serialize limit update, since a part of the register is changed. */
 	ret = mutex_lock_interruptible(&pvt->iface_mtx);
@@ -348,7 +260,7 @@ static int pvt_write_limit(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 		return ret;
 
 	/* Make sure the upper and lower ranges don't intersect. */
-	limit = readl(pvt->regs + pvt_info[type].thres_base);
+	limit = pvt->ops->read(pvt, pvt->info[type].thres_base);
 	if (is_low) {
 		limit = FIELD_GET(PVT_THRES_HI_MASK, limit);
 		data = clamp_val(data, PVT_DATA_MIN, limit);
@@ -361,7 +273,7 @@ static int pvt_write_limit(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 		mask = PVT_THRES_HI_MASK;
 	}
 
-	pvt_update(pvt->regs + pvt_info[type].thres_base, mask, data);
+	pvt_update(pvt, pvt->info[type].thres_base, mask, data);
 
 	mutex_unlock(&pvt->iface_mtx);
 
@@ -379,31 +291,7 @@ static int pvt_read_alarm(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	return 0;
 }
 
-static const struct hwmon_channel_info * const pvt_channel_info[] = {
-	HWMON_CHANNEL_INFO(chip,
-			   HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL),
-	HWMON_CHANNEL_INFO(temp,
-			   HWMON_T_INPUT | HWMON_T_TYPE | HWMON_T_LABEL |
-			   HWMON_T_MIN | HWMON_T_MIN_ALARM |
-			   HWMON_T_MAX | HWMON_T_MAX_ALARM |
-			   HWMON_T_OFFSET),
-	HWMON_CHANNEL_INFO(in,
-			   HWMON_I_INPUT | HWMON_I_LABEL |
-			   HWMON_I_MIN | HWMON_I_MIN_ALARM |
-			   HWMON_I_MAX | HWMON_I_MAX_ALARM,
-			   HWMON_I_INPUT | HWMON_I_LABEL |
-			   HWMON_I_MIN | HWMON_I_MIN_ALARM |
-			   HWMON_I_MAX | HWMON_I_MAX_ALARM,
-			   HWMON_I_INPUT | HWMON_I_LABEL |
-			   HWMON_I_MIN | HWMON_I_MIN_ALARM |
-			   HWMON_I_MAX | HWMON_I_MAX_ALARM,
-			   HWMON_I_INPUT | HWMON_I_LABEL |
-			   HWMON_I_MIN | HWMON_I_MIN_ALARM |
-			   HWMON_I_MAX | HWMON_I_MAX_ALARM),
-	NULL
-};
-
-#else /* !CONFIG_SENSORS_BT1_PVT_ALARMS */
+#else /* !CONFIG_SENSORS_BAIKAL_PVT_ALARMS */
 
 static irqreturn_t pvt_hard_isr(int irq, void *data)
 {
@@ -415,14 +303,13 @@ static irqreturn_t pvt_hard_isr(int irq, void *data)
 	 * Mask the DVALID interrupt so after exiting from the handler a
 	 * repeated conversion wouldn't happen.
 	 */
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID,
-		   PVT_INTR_DVALID);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, PVT_INTR_DVALID);
 
 	/*
 	 * Nothing special for alarm-less driver. Just read the data, update
 	 * the cache and notify a waiter of this event.
 	 */
-	val = readl(pvt->regs + PVT_DATA);
+	val = pvt->ops->read(pvt, PVT_DATA);
 	if (!(val & PVT_DATA_VALID)) {
 		dev_err(pvt->dev, "Got IRQ when data isn't valid\n");
 		return IRQ_HANDLED;
@@ -468,14 +355,14 @@ static int pvt_read_data(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 		return ret;
 
 	pvt->sensor = type;
-	pvt_set_mode(pvt, pvt_info[type].mode);
+	pvt_set_mode(pvt, pvt->info[type].mode);
 
 	/*
 	 * Unmask the DVALID interrupt and enable the sensors conversions.
 	 * Do the reverse procedure when conversion is done.
 	 */
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID, 0);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, 0);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
 
 	/*
 	 * Wait with timeout since in case if the sensor is suddenly powered
@@ -486,9 +373,8 @@ static int pvt_read_data(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	timeout = 2 * usecs_to_jiffies(ktime_to_us(pvt->timeout));
 	ret = wait_for_completion_timeout(&cache->conversion, timeout);
 
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID,
-		   PVT_INTR_DVALID);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, PVT_INTR_DVALID);
 
 	data = READ_ONCE(cache->data);
 
@@ -497,10 +383,7 @@ static int pvt_read_data(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	if (!ret)
 		return -ETIMEDOUT;
 
-	if (type == PVT_TEMP)
-		*val = polynomial_calc(&poly_N_to_temp, data);
-	else
-		*val = polynomial_calc(&poly_N_to_volt, data);
+	*val = pvt->ops->from_pvt(pvt, type, data);
 
 	return 0;
 }
@@ -523,21 +406,7 @@ static int pvt_read_alarm(struct pvt_hwmon *pvt, enum pvt_sensor_type type,
 	return -EOPNOTSUPP;
 }
 
-static const struct hwmon_channel_info * const pvt_channel_info[] = {
-	HWMON_CHANNEL_INFO(chip,
-			   HWMON_C_REGISTER_TZ | HWMON_C_UPDATE_INTERVAL),
-	HWMON_CHANNEL_INFO(temp,
-			   HWMON_T_INPUT | HWMON_T_TYPE | HWMON_T_LABEL |
-			   HWMON_T_OFFSET),
-	HWMON_CHANNEL_INFO(in,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL),
-	NULL
-};
-
-#endif /* !CONFIG_SENSORS_BT1_PVT_ALARMS */
+#endif /* !CONFIG_SENSORS_BAIKAL_PVT_ALARMS */
 
 static inline bool pvt_hwmon_channel_is_valid(enum hwmon_sensor_types type,
 					      int ch)
@@ -581,10 +450,10 @@ static umode_t pvt_hwmon_is_visible(const void *data,
 			return 0444;
 		case hwmon_temp_min:
 		case hwmon_temp_max:
-			return pvt_limit_is_visible(ch);
+			return pvt_limit_is_visible(PVT_TEMP + ch);
 		case hwmon_temp_min_alarm:
 		case hwmon_temp_max_alarm:
-			return pvt_alarm_is_visible(ch);
+			return pvt_alarm_is_visible(PVT_TEMP + ch);
 		case hwmon_temp_offset:
 			return 0644;
 		}
@@ -613,7 +482,7 @@ static int pvt_read_trim(struct pvt_hwmon *pvt, long *val)
 {
 	u32 data;
 
-	data = readl(pvt->regs + PVT_CTRL);
+	data = pvt->ops->read(pvt, PVT_CTRL);
 	*val = FIELD_GET(PVT_CTRL_TRIM_MASK, data) * PVT_TRIM_STEP;
 
 	return 0;
@@ -656,6 +525,28 @@ static int pvt_read_timeout(struct pvt_hwmon *pvt, long *val)
 	return 0;
 }
 
+static u32 pvt_calc_tout(ktime_t timeout, unsigned long rate)
+{
+	ktime_t kt;
+	u32 tout;
+
+	/*
+	 * Subtract a constant lag, which always persists due to the limited
+	 * PVT sampling rate. Make sure the timeout is not negative.
+	 */
+	kt = ktime_sub_ns(timeout, PVT_TOUT_MIN);
+	if (ktime_to_ns(kt) < 0)
+		kt = ktime_set(0, 0);
+
+	/*
+	 * Recalculate the timeout in terms of the reference clock
+	 * period.
+	 */
+	tout = ktime_divns(kt * rate, NSEC_PER_SEC);
+
+	return tout;
+}
+
 static int pvt_write_timeout(struct pvt_hwmon *pvt, long val)
 {
 	unsigned long rate;
@@ -673,23 +564,11 @@ static int pvt_write_timeout(struct pvt_hwmon *pvt, long val)
 	 * applicable to each individual sensor.
 	 */
 	cache = kt = ms_to_ktime(val);
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
 	kt = ktime_divns(kt, PVT_SENSORS_NUM);
 #endif
 
-	/*
-	 * Subtract a constant lag, which always persists due to the limited
-	 * PVT sampling rate. Make sure the timeout is not negative.
-	 */
-	kt = ktime_sub_ns(kt, PVT_TOUT_MIN);
-	if (ktime_to_ns(kt) < 0)
-		kt = ktime_set(0, 0);
-
-	/*
-	 * Finally recalculate the timeout in terms of the reference clock
-	 * period.
-	 */
-	data = ktime_divns(kt * rate, NSEC_PER_SEC);
+	data = pvt_calc_tout(kt, rate);
 
 	/*
 	 * Update the measurements delay, but lock the interface first, since
@@ -726,18 +605,18 @@ static int pvt_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 	case hwmon_temp:
 		switch (attr) {
 		case hwmon_temp_input:
-			return pvt_read_data(pvt, ch, val);
+			return pvt_read_data(pvt, PVT_TEMP + ch, val);
 		case hwmon_temp_type:
 			*val = 1;
 			return 0;
 		case hwmon_temp_min:
-			return pvt_read_limit(pvt, ch, true, val);
+			return pvt_read_limit(pvt, PVT_TEMP + ch, true, val);
 		case hwmon_temp_max:
-			return pvt_read_limit(pvt, ch, false, val);
+			return pvt_read_limit(pvt, PVT_TEMP + ch, false, val);
 		case hwmon_temp_min_alarm:
-			return pvt_read_alarm(pvt, ch, true, val);
+			return pvt_read_alarm(pvt, PVT_TEMP + ch, true, val);
 		case hwmon_temp_max_alarm:
-			return pvt_read_alarm(pvt, ch, false, val);
+			return pvt_read_alarm(pvt, PVT_TEMP + ch, false, val);
 		case hwmon_temp_offset:
 			return pvt_read_trim(pvt, val);
 		}
@@ -767,6 +646,8 @@ static int pvt_hwmon_read_string(struct device *dev,
 				 enum hwmon_sensor_types type,
 				 u32 attr, int ch, const char **str)
 {
+	struct pvt_hwmon *pvt = dev_get_drvdata(dev);
+
 	if (!pvt_hwmon_channel_is_valid(type, ch))
 		return -EINVAL;
 
@@ -774,14 +655,14 @@ static int pvt_hwmon_read_string(struct device *dev,
 	case hwmon_temp:
 		switch (attr) {
 		case hwmon_temp_label:
-			*str = pvt_info[ch].label;
+			*str = pvt->info[PVT_TEMP + ch].label;
 			return 0;
 		}
 		break;
 	case hwmon_in:
 		switch (attr) {
 		case hwmon_in_label:
-			*str = pvt_info[PVT_VOLT + ch].label;
+			*str = pvt->info[PVT_VOLT + ch].label;
 			return 0;
 		}
 		break;
@@ -810,9 +691,9 @@ static int pvt_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
 	case hwmon_temp:
 		switch (attr) {
 		case hwmon_temp_min:
-			return pvt_write_limit(pvt, ch, true, val);
+			return pvt_write_limit(pvt, PVT_TEMP + ch, true, val);
 		case hwmon_temp_max:
-			return pvt_write_limit(pvt, ch, false, val);
+			return pvt_write_limit(pvt, PVT_TEMP + ch, false, val);
 		case hwmon_temp_offset:
 			return pvt_write_trim(pvt, val);
 		}
@@ -839,15 +720,108 @@ static const struct hwmon_ops pvt_hwmon_ops = {
 	.write = pvt_hwmon_write
 };
 
-static const struct hwmon_chip_info pvt_hwmon_info = {
+static struct hwmon_chip_info pvt_hwmon_info = {
 	.ops = &pvt_hwmon_ops,
-	.info = pvt_channel_info
 };
+
+static int pvt_thermal_get_temp(struct thermal_zone_device *tzd, int *temp)
+{
+	struct pvt_hwmon *pvt = thermal_zone_device_priv(tzd);
+	long t;
+	int err;
+
+	err = pvt_read_data(pvt, PVT_TEMP, &t);
+	if (err)
+		return err;
+
+	*temp = t;
+
+	return 0;
+}
+
+static int pvt_thermal_set_trips(struct thermal_zone_device *tzd,
+				 int low, int high)
+{
+	struct pvt_hwmon *pvt = thermal_zone_device_priv(tzd);
+	int err;
+
+	err = pvt_write_limit(pvt, PVT_TEMP, true, low);
+	if (err)
+		return err;
+	return pvt_write_limit(pvt, PVT_TEMP, false, high);
+}
+
+static struct thermal_zone_device_ops pvt_thermal_ops = {
+	.get_temp = pvt_thermal_get_temp,
+	.set_trips = pvt_thermal_set_trips,
+};
+
+static const struct thermal_trip pvt_trips[] = {
+	{
+		.type = THERMAL_TRIP_CRITICAL,
+		.temperature = PVT_THERMAL_CRIT,
+		.hysteresis = PVT_THERMAL_CRIT_HYST,
+	},
+};
+
+static void pvt_thermal_unregister(void *data)
+{
+	struct thermal_zone_device *tzd = data;
+
+	thermal_zone_device_disable(tzd);
+	thermal_zone_device_unregister(tzd);
+}
+
+static struct thermal_zone_device *pvt_thermal_register(struct pvt_hwmon *pvt)
+{
+	struct thermal_zone_device *tzd;
+	struct thermal_zone_params *tzp;
+	struct thermal_trip *trips;
+	int err;
+
+	trips = devm_kmemdup(pvt->dev, pvt_trips, sizeof(pvt_trips),
+			     GFP_KERNEL);
+	if (!trips)
+		return ERR_PTR(-ENOMEM);
+
+	tzp = devm_kzalloc(pvt->dev, sizeof(*tzp), GFP_KERNEL);
+	if (!tzp) {
+		devm_kfree(pvt->dev, trips);
+		return ERR_PTR(-ENOMEM);
+	}
+	tzp->no_hwmon = true;
+	tzp->slope = 1;
+	tzp->offset = 0;
+
+	tzd = thermal_zone_device_register_with_trips("pvt_thermal",
+		trips, ARRAY_SIZE(pvt_trips), pvt, &pvt_thermal_ops,
+		tzp, 0, PVT_THERMAL_POLLING_DELAY);
+	if (IS_ERR(tzd)) {
+		devm_kfree(pvt->dev, tzp);
+		devm_kfree(pvt->dev, trips);
+		return tzd;
+	}
+	err = thermal_zone_device_enable(tzd);
+	if (err)
+		goto out_unregister;
+	err = devm_add_action(pvt->dev, pvt_thermal_unregister, tzd);
+	if (err)
+		goto out_disable;
+	return tzd;
+
+out_disable:
+	thermal_zone_device_disable(tzd);
+out_unregister:
+	thermal_zone_device_unregister(tzd);
+	devm_kfree(pvt->dev, tzp);
+	devm_kfree(pvt->dev, trips);
+	return ERR_PTR(err);
+}
 
 static void pvt_clear_data(void *data)
 {
 	struct pvt_hwmon *pvt = data;
-#if !defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
+#if !defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
 	int idx;
 
 	for (idx = 0; idx < PVT_SENSORS_NUM; ++idx)
@@ -877,7 +851,7 @@ static struct pvt_hwmon *pvt_create_data(struct platform_device *pdev)
 	pvt->sensor = PVT_SENSOR_FIRST;
 	mutex_init(&pvt->iface_mtx);
 
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
 	for (idx = 0; idx < PVT_SENSORS_NUM; ++idx)
 		seqlock_init(&pvt->cache[idx].data_seqlock);
 #else
@@ -892,9 +866,11 @@ static int pvt_request_regs(struct pvt_hwmon *pvt)
 {
 	struct platform_device *pdev = to_platform_device(pvt->dev);
 
-	pvt->regs = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(pvt->regs))
-		return PTR_ERR(pvt->regs);
+	if (!pvt->regs) {
+		pvt->regs = devm_platform_ioremap_resource(pdev, 0);
+		if (IS_ERR(pvt->regs))
+			return PTR_ERR(pvt->regs);
+	}
 
 	return 0;
 }
@@ -913,7 +889,7 @@ static int pvt_request_clks(struct pvt_hwmon *pvt)
 	pvt->clks[PVT_CLOCK_APB].id = "pclk";
 	pvt->clks[PVT_CLOCK_REF].id = "ref";
 
-	ret = devm_clk_bulk_get(pvt->dev, PVT_CLOCK_NUM, pvt->clks);
+	ret = devm_clk_bulk_get_optional(pvt->dev, PVT_CLOCK_NUM, pvt->clks);
 	if (ret) {
 		dev_err(pvt->dev, "Couldn't get PVT clocks descriptors\n");
 		return ret;
@@ -950,21 +926,21 @@ static int pvt_check_pwr(struct pvt_hwmon *pvt)
 	 * conversion. In the later case alas we won't be able to detect the
 	 * problem.
 	 */
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_ALL, PVT_INTR_ALL);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_ALL, PVT_INTR_ALL);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
 	pvt_set_tout(pvt, 0);
-	readl(pvt->regs + PVT_DATA);
+	pvt->ops->read(pvt, PVT_DATA);
 
 	tout = PVT_TOUT_MIN / NSEC_PER_USEC;
 	usleep_range(tout, 2 * tout);
 
-	data = readl(pvt->regs + PVT_DATA);
+	data = pvt->ops->read(pvt, PVT_DATA);
 	if (!(data & PVT_DATA_VALID)) {
 		ret = -ENODEV;
 		dev_err(pvt->dev, "Sensor is powered down\n");
 	}
 
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
 
 	return ret;
 }
@@ -972,7 +948,7 @@ static int pvt_check_pwr(struct pvt_hwmon *pvt)
 static int pvt_init_iface(struct pvt_hwmon *pvt)
 {
 	unsigned long rate;
-	u32 trim, temp;
+	u32 trim, temp, tout;
 
 	rate = clk_get_rate(pvt->clks[PVT_CLOCK_REF].clk);
 	if (!rate) {
@@ -985,14 +961,10 @@ static int pvt_init_iface(struct pvt_hwmon *pvt)
 	 * accidentally have ISR executed before the driver data is fully
 	 * initialized. Clear the IRQ status as well.
 	 */
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_ALL, PVT_INTR_ALL);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	readl(pvt->regs + PVT_CLR_INTR);
-	readl(pvt->regs + PVT_DATA);
-
-	/* Setup default sensor mode, timeout and temperature trim. */
-	pvt_set_mode(pvt, pvt_info[pvt->sensor].mode);
-	pvt_set_tout(pvt, PVT_TOUT_DEF);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_ALL, PVT_INTR_ALL);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt->ops->read(pvt, PVT_CLR_INTR);
+	pvt->ops->read(pvt, PVT_DATA);
 
 	/*
 	 * Preserve the current ref-clock based delay (Ttotal) between the
@@ -1007,15 +979,18 @@ static int pvt_init_iface(struct pvt_hwmon *pvt)
 	 * polled. In that case the formulae will look a bit different:
 	 *   Ttotal = 5 * (N / Fclk + Tmin)
 	 */
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
-	pvt->timeout = ktime_set(PVT_SENSORS_NUM * PVT_TOUT_DEF, 0);
-	pvt->timeout = ktime_divns(pvt->timeout, rate);
-	pvt->timeout = ktime_add_ns(pvt->timeout, PVT_SENSORS_NUM * PVT_TOUT_MIN);
+	pvt->timeout = ktime_set(0, PVT_TOUT_DEF);
+	tout = pvt_calc_tout(
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
+		ktime_divns(pvt->timeout, PVT_SENSORS_NUM)
 #else
-	pvt->timeout = ktime_set(PVT_TOUT_DEF, 0);
-	pvt->timeout = ktime_divns(pvt->timeout, rate);
-	pvt->timeout = ktime_add_ns(pvt->timeout, PVT_TOUT_MIN);
+		pvt->timeout
 #endif
+		, rate);
+
+	/* Setup default sensor mode, timeout and temperature trim. */
+	pvt_set_mode(pvt, pvt->info[pvt->sensor].mode);
+	pvt_set_tout(pvt, tout);
 
 	trim = PVT_TRIM_DEF;
 	if (!of_property_read_u32(pvt->dev->of_node,
@@ -1023,6 +998,37 @@ static int pvt_init_iface(struct pvt_hwmon *pvt)
 		trim = pvt_calc_trim(temp);
 
 	pvt_set_trim(pvt, trim);
+
+	return 0;
+}
+
+static int pvt_create_hwmon(struct pvt_hwmon *pvt,
+			    const struct hwmon_channel_info * const *hwmon_info)
+{
+	pvt_hwmon_info.info = hwmon_info;
+	pvt->hwmon = devm_hwmon_device_register_with_info(pvt->dev, "pvt", pvt,
+		&pvt_hwmon_info, NULL);
+	if (IS_ERR(pvt->hwmon)) {
+		dev_err(pvt->dev, "Couldn't create hwmon device\n");
+		return PTR_ERR(pvt->hwmon);
+	}
+
+	if (__is_defined(CONFIG_THERMAL_OF) && acpi_disabled) {
+		pvt->tzd = devm_thermal_of_zone_register(pvt->dev, 0, pvt,
+							 &pvt_thermal_ops);
+		if (IS_ERR(pvt->tzd) && PTR_ERR(pvt->tzd) == -ENODEV) {
+			dev_info(pvt->dev,
+				"temp0_input not attached to any thermal zone\n");
+			return 0;
+		}
+	}
+	else {
+		pvt->tzd = pvt_thermal_register(pvt);
+	}
+	if (IS_ERR(pvt->tzd)) {
+		dev_err(pvt->dev, "Couldn't register to thermal\n");
+		return PTR_ERR(pvt->tzd);
+	}
 
 	return 0;
 }
@@ -1037,12 +1043,15 @@ static int pvt_request_irq(struct pvt_hwmon *pvt)
 		return pvt->irq;
 
 	ret = devm_request_threaded_irq(pvt->dev, pvt->irq,
-					pvt_hard_isr, pvt_soft_isr,
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
-					IRQF_SHARED | IRQF_TRIGGER_HIGH |
+					pvt_hard_isr,
+					pvt_soft_isr,
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
+					IRQF_SHARED |
+					IRQF_TRIGGER_HIGH |
 					IRQF_ONESHOT,
 #else
-					IRQF_SHARED | IRQF_TRIGGER_HIGH,
+					IRQF_SHARED |
+					IRQF_TRIGGER_HIGH,
 #endif
 					"pvt", pvt);
 	if (ret) {
@@ -1053,28 +1062,15 @@ static int pvt_request_irq(struct pvt_hwmon *pvt)
 	return 0;
 }
 
-static int pvt_create_hwmon(struct pvt_hwmon *pvt)
-{
-	pvt->hwmon = devm_hwmon_device_register_with_info(pvt->dev, "pvt", pvt,
-		&pvt_hwmon_info, NULL);
-	if (IS_ERR(pvt->hwmon)) {
-		dev_err(pvt->dev, "Couldn't create hwmon device\n");
-		return PTR_ERR(pvt->hwmon);
-	}
-
-	return 0;
-}
-
-#if defined(CONFIG_SENSORS_BT1_PVT_ALARMS)
+#if defined(CONFIG_SENSORS_BAIKAL_PVT_ALARMS)
 
 static void pvt_disable_iface(void *data)
 {
 	struct pvt_hwmon *pvt = data;
 
 	mutex_lock(&pvt->iface_mtx);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, 0);
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID,
-		   PVT_INTR_DVALID);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, 0);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, PVT_INTR_DVALID);
 	mutex_unlock(&pvt->iface_mtx);
 }
 
@@ -1095,23 +1091,25 @@ static int pvt_enable_iface(struct pvt_hwmon *pvt)
 	 * which theoretically may cause races.
 	 */
 	mutex_lock(&pvt->iface_mtx);
-	pvt_update(pvt->regs + PVT_INTR_MASK, PVT_INTR_DVALID, 0);
-	pvt_update(pvt->regs + PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
+	pvt_update(pvt, PVT_INTR_MASK, PVT_INTR_DVALID, 0);
+	pvt_update(pvt, PVT_CTRL, PVT_CTRL_EN, PVT_CTRL_EN);
 	mutex_unlock(&pvt->iface_mtx);
 
 	return 0;
 }
 
-#else /* !CONFIG_SENSORS_BT1_PVT_ALARMS */
+#else /* !CONFIG_SENSORS_BAIKAL_PVT_ALARMS */
 
 static int pvt_enable_iface(struct pvt_hwmon *pvt)
 {
 	return 0;
 }
 
-#endif /* !CONFIG_SENSORS_BT1_PVT_ALARMS */
+#endif /* !CONFIG_SENSORS_BAIKAL_PVT_ALARMS */
 
-static int pvt_probe(struct platform_device *pdev)
+int baikal_pvt_create(struct platform_device *pdev, struct pvt_ops *ops,
+		      const struct pvt_sensor_info *info,
+		      const struct hwmon_channel_info * const *hwmon_info)
 {
 	struct pvt_hwmon *pvt;
 	int ret;
@@ -1119,6 +1117,16 @@ static int pvt_probe(struct platform_device *pdev)
 	pvt = pvt_create_data(pdev);
 	if (IS_ERR(pvt))
 		return PTR_ERR(pvt);
+
+	pvt->ops = ops;
+	pvt->info = info;
+	platform_set_drvdata(pdev, pvt);
+
+	if (ops->init) {
+		ret = ops->init(pvt);
+		if (ret)
+			return ret;
+	}
 
 	ret = pvt_request_regs(pvt);
 	if (ret)
@@ -1136,11 +1144,11 @@ static int pvt_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	ret = pvt_request_irq(pvt);
+	ret = pvt_create_hwmon(pvt, hwmon_info);
 	if (ret)
 		return ret;
 
-	ret = pvt_create_hwmon(pvt);
+	ret = pvt_request_irq(pvt);
 	if (ret)
 		return ret;
 
@@ -1150,22 +1158,4 @@ static int pvt_probe(struct platform_device *pdev)
 
 	return 0;
 }
-
-static const struct of_device_id pvt_of_match[] = {
-	{ .compatible = "baikal,bt1-pvt" },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, pvt_of_match);
-
-static struct platform_driver pvt_driver = {
-	.probe = pvt_probe,
-	.driver = {
-		.name = "bt1-pvt",
-		.of_match_table = pvt_of_match
-	}
-};
-module_platform_driver(pvt_driver);
-
-MODULE_AUTHOR("Maxim Kaurkin <maxim.kaurkin@baikalelectronics.ru>");
-MODULE_DESCRIPTION("Baikal-T1 PVT driver");
-MODULE_LICENSE("GPL v2");
+EXPORT_SYMBOL(baikal_pvt_create);

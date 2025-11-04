@@ -8,6 +8,8 @@
 #include <linux/platform_device.h>
 #include <linux/pm_opp.h>
 
+#include "../../../opp/opp.h"
+
 #include "panfrost_device.h"
 #include "panfrost_devfreq.h"
 
@@ -114,6 +116,82 @@ static int panfrost_read_speedbin(struct device *dev)
 	return devm_pm_opp_set_supported_hw(dev, &val, 1);
 }
 
+static void panfrost_devfreq_opp_remove(void *data)
+{
+	dev_pm_opp_remove_all_dynamic(data);
+}
+
+static struct dev_pm_opp *panfrost_devfreq_opp_get(struct opp_table *opp_table,
+						   unsigned long rate)
+{
+	struct dev_pm_opp *opp = NULL, *temp;
+
+	if (opp_table) {
+		mutex_lock(&opp_table->lock);
+		list_for_each_entry(temp, &opp_table->opp_list, node) {
+			if (!temp->removed && temp->dynamic &&
+			    temp->rates[0] == rate) {
+				opp = temp;
+				break;
+			}
+		}
+		mutex_unlock(&opp_table->lock);
+	}
+
+	return opp;
+}
+
+static int panfrost_devfreq_opp_add_table(struct device *dev)
+{
+	struct opp_table *opp_table = NULL;
+	struct dev_pm_opp *opp;
+	u64 *arr;
+	int i, count, ret;
+
+	count = device_property_count_u64(dev, "operating-points");
+	if (count < 2 || count % 2)
+		return -ENODEV;
+
+	arr = kcalloc(count, sizeof(u64), GFP_KERNEL);
+	if (!arr)
+		return -ENOMEM;
+
+	ret = device_property_read_u64_array(dev, "operating-points", arr, count);
+	if (ret)
+		goto err;
+
+	count >>= 1;
+	for (i = 0; i < count; ++i) {
+		ret = dev_pm_opp_add(dev, arr[2 * i], 0);
+		if (ret) {
+			if (!IS_ERR_OR_NULL(opp_table)) {
+				dev_pm_opp_put_opp_table(opp_table);
+				dev_pm_opp_remove_all_dynamic(dev);
+			}
+			goto err;
+		}
+
+		if (!opp_table)
+			opp_table = dev_pm_opp_get_opp_table(dev);
+
+		opp = panfrost_devfreq_opp_get(opp_table, i);
+		if (opp) {
+			mutex_lock(&opp_table->lock);
+			opp->clock_latency_ns = arr[2 * i + 1];
+			if (opp->clock_latency_ns > opp_table->clock_latency_ns_max)
+				opp_table->clock_latency_ns_max = opp->clock_latency_ns;
+			mutex_unlock(&opp_table->lock);
+		}
+	}
+
+	dev_pm_opp_put_opp_table(opp_table);
+	devm_add_action_or_reset(dev, panfrost_devfreq_opp_remove, dev);
+
+err:
+	kfree(arr);
+	return ret;
+}
+
 int panfrost_devfreq_init(struct panfrost_device *pfdev)
 {
 	int ret;
@@ -148,7 +226,10 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
 		}
 	}
 
-	ret = devm_pm_opp_of_add_table(dev);
+	if (dev->of_node)
+		ret = devm_pm_opp_of_add_table(dev);
+	else
+		ret = panfrost_devfreq_opp_add_table(dev);
 	if (ret) {
 		/* Optional, continue without devfreq */
 		if (ret == -ENODEV)
@@ -211,6 +292,12 @@ int panfrost_devfreq_init(struct panfrost_device *pfdev)
 		return PTR_ERR(devfreq);
 	}
 	pfdevfreq->devfreq = devfreq;
+
+	if (!dev->of_node) {
+		mutex_lock(&devfreq->lock);
+		update_devfreq(devfreq);
+		mutex_unlock(&devfreq->lock);
+	}
 
 	cooling = devfreq_cooling_em_register(devfreq, NULL);
 	if (IS_ERR(cooling))

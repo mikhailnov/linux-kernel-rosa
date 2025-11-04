@@ -643,6 +643,12 @@ dwc_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	case DMA_MEM_TO_DEV:
 		reg_width = __ffs(sconfig->dst_addr_width);
 		reg = sconfig->dst_addr;
+
+		/* Set the destination as an offset of AVLSP if AHB master 1 is used */
+		if (dwc->dws.p_master == 0) {
+			reg &= 0xffffff;
+		}
+
 		ctllo = dw->prepare_ctllo(dwc)
 				| DWC_CTLL_DST_WIDTH(reg_width)
 				| DWC_CTLL_DST_FIX
@@ -693,6 +699,12 @@ slave_sg_todev_fill_desc:
 	case DMA_DEV_TO_MEM:
 		reg_width = __ffs(sconfig->src_addr_width);
 		reg = sconfig->src_addr;
+
+		/* Set the source as an offset of AVLSP if AHB master 1 is used */
+		if (dwc->dws.p_master == 0) {
+			reg &= 0xffffff;
+		}
+
 		ctllo = dw->prepare_ctllo(dwc)
 				| DWC_CTLL_SRC_WIDTH(reg_width)
 				| DWC_CTLL_DST_INC
@@ -1156,6 +1168,7 @@ int do_dma_probe(struct dw_dma_chip *chip)
 	unsigned int		dw_params;
 	unsigned int		i;
 	int			ret;
+	int 			irq_num;
 
 	dw->pdata = devm_kzalloc(chip->dev, sizeof(*dw->pdata), GFP_KERNEL);
 	if (!dw->pdata)
@@ -1227,10 +1240,13 @@ int do_dma_probe(struct dw_dma_chip *chip)
 
 	tasklet_setup(&dw->tasklet, dw_dma_tasklet);
 
-	ret = request_irq(chip->irq, dw_dma_interrupt, IRQF_SHARED,
-			  dw->name, dw);
-	if (ret)
-		goto err_pdata;
+	irq_num = chip->irq_num;
+	while (irq_num--) {
+		ret = request_irq(chip->irq[irq_num], dw_dma_interrupt,
+					IRQF_SHARED, dw->name, dw);
+		if (ret)
+			goto err_pdata;
+	}
 
 	INIT_LIST_HEAD(&dw->dma.channels);
 	for (i = 0; i < pdata->nr_channels; i++) {
@@ -1353,7 +1369,9 @@ int do_dma_probe(struct dw_dma_chip *chip)
 	return 0;
 
 err_dma_register:
-	free_irq(chip->irq, dw);
+	irq_num = chip->irq_num;
+	while (irq_num--)
+		free_irq(chip->irq[irq_num], dw);
 err_pdata:
 	pm_runtime_put_sync_suspend(chip->dev);
 	return ret;
@@ -1363,13 +1381,17 @@ int do_dma_remove(struct dw_dma_chip *chip)
 {
 	struct dw_dma		*dw = chip->dw;
 	struct dw_dma_chan	*dwc, *_dwc;
+	int 			irq_num;
 
 	pm_runtime_get_sync(chip->dev);
 
 	do_dw_dma_off(dw);
 	dma_async_device_unregister(&dw->dma);
 
-	free_irq(chip->irq, dw);
+	irq_num = chip->irq_num;
+	while (irq_num--)
+		free_irq(chip->irq[irq_num], dw);
+
 	tasklet_kill(&dw->tasklet);
 
 	list_for_each_entry_safe(dwc, _dwc, &dw->dma.channels,

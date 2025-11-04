@@ -11,6 +11,7 @@
 
 #include <linux/bits.h>
 #include <linux/completion.h>
+#include <linux/dmaengine.h>
 #include <linux/errno.h>
 #include <linux/i2c.h>
 #include <linux/pm.h>
@@ -76,6 +77,9 @@
 #define DW_IC_RXFLR				0x78
 #define DW_IC_SDA_HOLD				0x7c
 #define DW_IC_TX_ABRT_SOURCE			0x80
+#define DW_IC_DMA_CR				0x88
+#define DW_IC_DMA_TDLR				0x8c
+#define DW_IC_DMA_RDLR				0x90
 #define DW_IC_ENABLE_STATUS			0x9c
 #define DW_IC_CLR_RESTART_DET			0xa8
 #define DW_IC_COMP_PARAM_1			0xf4
@@ -183,10 +187,26 @@
 						 DW_IC_TX_ABRT_10ADDR2_NOACK | \
 						 DW_IC_TX_ABRT_TXDATA_NOACK | \
 						 DW_IC_TX_ABRT_GCALL_NOACK)
+/*
+ * DMA Control Register
+ */
+#define DW_IC_DMA_CR_RDMAE			BIT(0)
+#define DW_IC_DMA_CR_TDMAE			BIT(1)
+
+
+#define DW_IC_DMA_BUF_SIZE 4096
+#define DW_IC_DMA_THRESHOLD 32
+#define DW_IC_DMA_MAXBURST 4
 
 struct clk;
 struct device;
 struct reset_control;
+
+struct dw_i2c_dma_buf {
+	u8 *buf;
+	dma_addr_t phys;
+	unsigned int size;
+};
 
 /**
  * struct dw_i2c_dev - private i2c-designware data
@@ -242,6 +262,16 @@ struct reset_control;
  * @set_sda_hold_time: callback to retrieve IP specific SDA hold timing
  * @mode: operation mode - DW_IC_MASTER or DW_IC_SLAVE
  * @rinfo: I²C GPIO recovery information
+ * @phys_addr: IO base address
+ * @dma_dev: handle to DMA
+ * @dma_chan_tx: DMA tx channel
+ * @dma_chan_rx: DMA rx channel
+ * @cmd_dma: DMA cmd resources
+ * @tx_dma: DMA tx resources
+ * @rx_dma: DMA rx resources
+ * @msg_read: indicates that the transfer is a read access
+ * @dma_available: defines usage of DMA
+ * @use_dma: indicates the need for a DMA transaction
  *
  * HCNT and LCNT parameters can be used if the platform knows more accurate
  * values than the one computed based only on the input clock frequency.
@@ -299,6 +329,20 @@ struct dw_i2c_dev {
 	int			(*set_sda_hold_time)(struct dw_i2c_dev *dev);
 	int			mode;
 	struct i2c_bus_recovery_info rinfo;
+
+	u32 phys_addr;
+
+	struct device *dma_dev;
+	struct dma_chan *dma_chan_tx;
+	struct dma_chan *dma_chan_rx;
+
+	struct dw_i2c_dma_buf cmd_dma;
+	struct dw_i2c_dma_buf tx_dma;
+	struct dw_i2c_dma_buf rx_dma;
+
+	bool msg_read;
+	bool dma_available;
+	bool use_dma;
 };
 
 #define ACCESS_INTR_MASK			BIT(0)

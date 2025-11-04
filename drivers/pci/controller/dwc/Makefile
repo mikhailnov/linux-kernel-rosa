@@ -3,6 +3,7 @@ obj-$(CONFIG_PCIE_DW) += pcie-designware.o
 obj-$(CONFIG_PCIE_DW_HOST) += pcie-designware-host.o
 obj-$(CONFIG_PCIE_DW_EP) += pcie-designware-ep.o
 obj-$(CONFIG_PCIE_DW_PLAT) += pcie-designware-plat.o
+obj-$(CONFIG_PCIE_BAIKAL) += pcie-baikal.o
 obj-$(CONFIG_PCIE_BT1) += pcie-bt1.o
 obj-$(CONFIG_PCI_DRA7XX) += pci-dra7xx.o
 obj-$(CONFIG_PCI_EXYNOS) += pci-exynos.o
@@ -29,6 +30,9 @@ obj-$(CONFIG_PCIE_UNIPHIER_EP) += pcie-uniphier-ep.o
 obj-$(CONFIG_PCIE_VISCONTI_HOST) += pcie-visconti.o
 obj-$(CONFIG_PCIE_RCAR_GEN4) += pcie-rcar-gen4.o
 
+pcie-baikal-objs := pcie-baikal-core.o \
+                    pcie-baikal-tune.o
+
 # The following drivers are for devices that use the generic ACPI
 # pci_root.c driver but don't support standard ECAM config access.
 # They contain MCFG quirks to replace the generic ECAM accessors with
@@ -45,6 +49,7 @@ obj-$(CONFIG_PCI_HISI) += pcie-hisi.o
 ifdef CONFIG_ACPI
 ifdef CONFIG_PCI_QUIRKS
 obj-$(CONFIG_ARM64) += pcie-al.o
+obj-$(CONFIG_ARM64) += pcie-baikal-acpi.o
 obj-$(CONFIG_ARM64) += pcie-hisi.o
 obj-$(CONFIG_ARM64) += pcie-tegra194-acpi.o
 endif

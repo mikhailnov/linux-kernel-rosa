@@ -23,12 +23,65 @@
 
 #define DRV_NAME	"dw_dmac"
 
+struct dw_dma_platform_data *dw_dma_parse_properties(struct platform_device *pdev)
+{
+	struct device *dev = &pdev->dev;
+	struct dw_dma_platform_data *pdata;
+	u32 tmp, arr[DW_DMA_MAX_NR_MASTERS];
+	u32 nr_masters;
+	u32 nr_channels;
+
+	if (device_property_read_u32(dev, "dma-masters", &nr_masters))
+		return NULL;
+	if (nr_masters < 1 || nr_masters > DW_DMA_MAX_NR_MASTERS)
+		return NULL;
+
+	if (device_property_read_u32(dev, "dma-channels", &nr_channels))
+		return NULL;
+	if (nr_channels > DW_DMA_MAX_NR_CHANNELS)
+		return NULL;
+
+	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata)
+		return NULL;
+
+	pdata->nr_masters = nr_masters;
+	pdata->nr_channels = nr_channels;
+
+	device_property_read_u32(dev, "chan_allocation_order", &pdata->chan_allocation_order);
+	device_property_read_u32(dev, "chan_priority", &pdata->chan_priority);
+
+	device_property_read_u32(dev, "block_size", &pdata->block_size);
+
+	/* Try deprecated property first */
+	if (!device_property_read_u32_array(dev, "data_width", arr, nr_masters)) {
+		for (tmp = 0; tmp < nr_masters; tmp++)
+			pdata->data_width[tmp] = BIT(arr[tmp] & 0x07);
+	}
+
+	/* If "data_width" and "data-width" both provided use the latter one */
+	device_property_read_u32_array(dev, "data-width", pdata->data_width, nr_masters);
+
+	memset32(pdata->multi_block, 1, nr_channels);
+	device_property_read_u32_array(dev, "multi-block", pdata->multi_block, nr_channels);
+
+	memset32(pdata->max_burst, DW_DMA_MAX_BURST, nr_channels);
+	device_property_read_u32_array(dev, "snps,max-burst-len", pdata->max_burst, nr_channels);
+
+	device_property_read_u32(dev, "snps,dma-protection-control", &pdata->protctl);
+	if (pdata->protctl > CHAN_PROTCTL_MASK)
+		return NULL;
+
+	return pdata;
+}
+
 static int dw_probe(struct platform_device *pdev)
 {
 	const struct dw_dma_chip_pdata *match;
 	struct dw_dma_chip_pdata *data;
 	struct dw_dma_chip *chip;
 	struct device *dev = &pdev->dev;
+	int irq_num;
 	int ret;
 
 	match = device_get_match_data(dev);
@@ -43,9 +96,15 @@ static int dw_probe(struct platform_device *pdev)
 	if (!chip)
 		return -ENOMEM;
 
-	chip->irq = platform_get_irq(pdev, 0);
-	if (chip->irq < 0)
-		return chip->irq;
+	irq_num = platform_irq_count(pdev);
+	if (!irq_num)
+		dev_err(&pdev->dev, "no irq found on device\n");
+
+	chip->irq = devm_kzalloc(dev, irq_num * sizeof(int), GFP_KERNEL);
+	chip->irq_num = irq_num;
+
+	while (irq_num--)
+		chip->irq[irq_num] = platform_get_irq(pdev, irq_num);
 
 	chip->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(chip->regs))
@@ -58,7 +117,7 @@ static int dw_probe(struct platform_device *pdev)
 	if (!data->pdata)
 		data->pdata = dev_get_platdata(dev);
 	if (!data->pdata)
-		data->pdata = dw_dma_parse_dt(pdev);
+		data->pdata = dw_dma_parse_properties(pdev);
 
 	chip->dev = dev;
 	chip->id = pdev->id;
@@ -146,6 +205,7 @@ static const struct acpi_device_id dw_dma_acpi_id_table[] = {
 	{ "INTL9C60", (kernel_ulong_t)&dw_dma_chip_pdata },
 	{ "80862286", (kernel_ulong_t)&dw_dma_chip_pdata },
 	{ "808622C0", (kernel_ulong_t)&dw_dma_chip_pdata },
+	{ "BKLE0005", (kernel_ulong_t)&dw_dma_chip_pdata },
 
 	/* Elkhart Lake iDMA 32-bit (PSE DMA) */
 	{ "80864BB4", (kernel_ulong_t)&xbar_chip_pdata },

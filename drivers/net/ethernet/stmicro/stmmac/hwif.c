@@ -36,21 +36,6 @@ static u32 stmmac_get_dev_id(struct stmmac_priv *priv, u32 id_reg)
 	return (reg & GENMASK(15, 8)) >> 8;
 }
 
-static void stmmac_dwmac_mode_quirk(struct stmmac_priv *priv)
-{
-	struct mac_device_info *mac = priv->hw;
-
-	if (priv->chain_mode) {
-		dev_info(priv->device, "Chain mode enabled\n");
-		priv->mode = STMMAC_CHAIN_MODE;
-		mac->mode = &chain_mode_ops;
-	} else {
-		dev_info(priv->device, "Ring mode enabled\n");
-		priv->mode = STMMAC_RING_MODE;
-		mac->mode = &ring_mode_ops;
-	}
-}
-
 static int stmmac_dwmac1_quirks(struct stmmac_priv *priv)
 {
 	struct mac_device_info *mac = priv->hw;
@@ -59,26 +44,24 @@ static int stmmac_dwmac1_quirks(struct stmmac_priv *priv)
 		dev_info(priv->device, "Enhanced/Alternate descriptors\n");
 
 		/* GMAC older than 3.50 has no extended descriptors */
-		if (priv->synopsys_id >= DWMAC_CORE_3_50) {
-			dev_info(priv->device, "Enabled extended descriptors\n");
-			priv->extend_desc = 1;
-		} else {
+		if (priv->synopsys_id < DWMAC_CORE_3_50) {
 			dev_warn(priv->device, "Extended descriptors not supported\n");
+			mac->desc = priv->plat->rx_coe ?
+				    &enh_desc_noext_ops : &enh_desc_ops;
+		} else if (priv->dma_cap.atime_stamp || priv->plat->rx_coe) {
+			dev_info(priv->device, "Extended descriptors enabled\n");
+			priv->extend_desc = 1;
+			mac->desc = &enh_desc_ext_ops;
+		} else {
+			dev_info(priv->device, "Extended descriptors disabled\n");
+			priv->extend_desc = 0;
+			mac->desc = &enh_desc_ops;
 		}
-
-		mac->desc = &enh_desc_ops;
 	} else {
 		dev_info(priv->device, "Normal descriptors\n");
-		mac->desc = &ndesc_ops;
+		mac->desc = priv->plat->rx_coe ? &ndesc_rxcoe2_ops : &ndesc_ops;
 	}
 
-	stmmac_dwmac_mode_quirk(priv);
-	return 0;
-}
-
-static int stmmac_dwmac4_quirks(struct stmmac_priv *priv)
-{
-	stmmac_dwmac_mode_quirk(priv);
 	return 0;
 }
 
@@ -112,7 +95,6 @@ static const struct stmmac_hwif_entry {
 	const void *dma;
 	const void *mac;
 	const void *hwtimestamp;
-	const void *mode;
 	const void *tc;
 	const void *mmc;
 	const void *est;
@@ -133,7 +115,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac100_dma_ops,
 		.mac = &dwmac100_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = NULL,
 		.tc = NULL,
 		.mmc = &dwmac_mmc_ops,
 		.setup = dwmac100_setup,
@@ -151,7 +132,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac1000_dma_ops,
 		.mac = &dwmac1000_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = NULL,
 		.tc = NULL,
 		.mmc = &dwmac_mmc_ops,
 		.setup = dwmac1000_setup,
@@ -170,12 +150,10 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac4_dma_ops,
 		.mac = &dwmac4_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = NULL,
 		.tc = &dwmac4_tc_ops,
 		.mmc = &dwmac_mmc_ops,
 		.est = &dwmac510_est_ops,
 		.setup = dwmac4_setup,
-		.quirks = stmmac_dwmac4_quirks,
 	}, {
 		.gmac = false,
 		.gmac4 = true,
@@ -190,7 +168,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac4_dma_ops,
 		.mac = &dwmac410_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = &dwmac4_ring_mode_ops,
 		.tc = &dwmac510_tc_ops,
 		.mmc = &dwmac_mmc_ops,
 		.est = &dwmac510_est_ops,
@@ -210,7 +187,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac410_dma_ops,
 		.mac = &dwmac410_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = &dwmac4_ring_mode_ops,
 		.tc = &dwmac510_tc_ops,
 		.mmc = &dwmac_mmc_ops,
 		.est = &dwmac510_est_ops,
@@ -230,7 +206,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwmac410_dma_ops,
 		.mac = &dwmac510_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = &dwmac4_ring_mode_ops,
 		.tc = &dwmac510_tc_ops,
 		.mmc = &dwmac_mmc_ops,
 		.est = &dwmac510_est_ops,
@@ -251,7 +226,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwxgmac210_dma_ops,
 		.mac = &dwxgmac210_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = NULL,
 		.tc = &dwxgmac_tc_ops,
 		.mmc = &dwxgmac_mmc_ops,
 		.est = &dwmac510_est_ops,
@@ -272,7 +246,6 @@ static const struct stmmac_hwif_entry {
 		.dma = &dwxgmac210_dma_ops,
 		.mac = &dwxlgmac2_ops,
 		.hwtimestamp = &stmmac_ptp,
-		.mode = NULL,
 		.tc = &dwxgmac_tc_ops,
 		.mmc = &dwxgmac_mmc_ops,
 		.est = &dwmac510_est_ops,
@@ -347,7 +320,6 @@ int stmmac_hwif_init(struct stmmac_priv *priv)
 		mac->dma = mac->dma ? : entry->dma;
 		mac->mac = mac->mac ? : entry->mac;
 		mac->ptp = mac->ptp ? : entry->hwtimestamp;
-		mac->mode = mac->mode ? : entry->mode;
 		mac->tc = mac->tc ? : entry->tc;
 		mac->mmc = mac->mmc ? : entry->mmc;
 		mac->est = mac->est ? : entry->est;

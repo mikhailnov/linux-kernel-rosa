@@ -159,6 +159,25 @@ static void show_rx_process_state(unsigned int status)
 }
 #endif
 
+bool dwmac_dma_suspended(struct stmmac_priv *priv, void __iomem *ioaddr,
+			 u32 chan, u32 dir)
+{
+	u32 status = readl(ioaddr + DMA_CHAN_STATUS(chan));
+	u32 ts, rs;
+
+	if (dir == DMA_DIR_TX) {
+		ts = (status & DMA_STATUS_TS_MASK) >> DMA_STATUS_TS_SHIFT;
+		return ts == 6;
+	} else if (dir == DMA_DIR_RX) {
+		rs = (status & DMA_STATUS_RS_MASK) >> DMA_STATUS_RS_SHIFT;
+		return rs == 4;
+	}
+
+	ts = (status & DMA_STATUS_TS_MASK) >> DMA_STATUS_TS_SHIFT;
+	rs = (status & DMA_STATUS_RS_MASK) >> DMA_STATUS_RS_SHIFT;
+	return ts == 6 && rs == 4;
+}
+
 int dwmac_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 			struct stmmac_extra_stats *x, u32 chan, u32 dir)
 {
@@ -182,30 +201,37 @@ int dwmac_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & DMA_STATUS_AIS)) {
 		if (unlikely(intr_status & DMA_STATUS_UNF)) {
-			ret = tx_hard_error_bump_tc;
 			x->tx_undeflow_irq++;
+			ret = tx_unf_error;
 		}
-		if (unlikely(intr_status & DMA_STATUS_TJT))
+
+		if (unlikely(intr_status & DMA_STATUS_TJT)) {
 			x->tx_jabber_irq++;
+			ret = tx_soft_stop;
+		}
 
-		if (unlikely(intr_status & DMA_STATUS_OVF))
+		if (unlikely(intr_status & DMA_STATUS_OVF)) {
 			x->rx_overflow_irq++;
+			ret = rx_ovf_error;
+		}
 
-		if (unlikely(intr_status & DMA_STATUS_RU))
+		if (unlikely(intr_status & DMA_STATUS_RU)) {
 			x->rx_buf_unav_irq++;
+			ret = handle_rx;
+		}
+
 		if (unlikely(intr_status & DMA_STATUS_RPS))
 			x->rx_process_stopped_irq++;
 		if (unlikely(intr_status & DMA_STATUS_RWT))
 			x->rx_watchdog_irq++;
 		if (unlikely(intr_status & DMA_STATUS_ETI))
 			x->tx_early_irq++;
-		if (unlikely(intr_status & DMA_STATUS_TPS)) {
+		if (unlikely(intr_status & DMA_STATUS_TPS))
 			x->tx_process_stopped_irq++;
-			ret = tx_hard_error;
-		}
+
 		if (unlikely(intr_status & DMA_STATUS_FBI)) {
 			x->fatal_bus_error_irq++;
-			ret = tx_hard_error;
+			ret = io_fatal_error;
 		}
 	}
 	/* TX/RX NORMAL interrupts */
@@ -240,12 +266,23 @@ int dwmac_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 	return ret;
 }
 
-void dwmac_dma_flush_tx_fifo(void __iomem *ioaddr)
+void dwmac_dma_diagnostic_fr(struct stmmac_priv *priv, void __iomem *ioaddr,
+			     struct stmmac_extra_stats *x, u32 chan)
 {
-	u32 csr6 = readl(ioaddr + DMA_CONTROL);
-	writel((csr6 | DMA_CONTROL_FTF), ioaddr + DMA_CONTROL);
+	u32 csr8 = readl(ioaddr + DMA_CHAN_MISSED_FRAME_CTR(chan));
+	unsigned long cntr;
 
-	do {} while ((readl(ioaddr + DMA_CONTROL) & DMA_CONTROL_FTF));
+	cntr = FIELD_GET(DMA_MISSED_FRAME_OVFFRMCNT, csr8);
+	if (csr8 & DMA_MISSED_FRAME_OVFCNTOVF)
+		cntr += FIELD_MAX(DMA_MISSED_FRAME_OVFFRMCNT) + 1;
+
+	x->rx_overflow_cntr += cntr;
+
+	cntr = FIELD_GET(DMA_MISSED_FRAME_MISFRMCNT, csr8);
+	if (csr8 & DMA_MISSED_FRAME_MISCNTOVF)
+		cntr += FIELD_MAX(DMA_MISSED_FRAME_MISFRMCNT) + 1;
+
+	x->rx_missed_cntr += cntr;
 }
 
 void stmmac_set_mac_addr(void __iomem *ioaddr, const u8 addr[6],

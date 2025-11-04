@@ -72,7 +72,7 @@ static void msg_submit(struct mbox_chan *chan)
 
 	data = chan->msg_data[idx];
 
-	if (chan->cl->tx_prepare)
+	if (chan->cl && chan->cl->tx_prepare)
 		chan->cl->tx_prepare(chan->cl, data);
 	/* Try to submit a message to the MBOX controller */
 	err = chan->mbox->ops->send_data(chan, data);
@@ -108,10 +108,10 @@ static void tx_tick(struct mbox_chan *chan, int r)
 		return;
 
 	/* Notify the client */
-	if (chan->cl->tx_done)
+	if (chan->cl && chan->cl->tx_done)
 		chan->cl->tx_done(chan->cl, mssg, r);
 
-	if (r != -ETIME && chan->cl->tx_block)
+	if (r != -ETIME && chan->cl && chan->cl->tx_block)
 		complete(&chan->tx_complete);
 }
 
@@ -159,7 +159,7 @@ static enum hrtimer_restart txdone_hrtimer(struct hrtimer *hrtimer)
 void mbox_chan_received_data(struct mbox_chan *chan, void *mssg)
 {
 	/* No buffering the received data */
-	if (chan->cl->rx_callback)
+	if (chan->cl && chan->cl->rx_callback)
 		chan->cl->rx_callback(chan->cl, mssg);
 }
 EXPORT_SYMBOL_GPL(mbox_chan_received_data);
@@ -467,6 +467,69 @@ struct mbox_chan *mbox_request_channel_byname(struct mbox_client *cl,
 	return mbox_request_channel(cl, index);
 }
 EXPORT_SYMBOL_GPL(mbox_request_channel_byname);
+
+struct mbox_chan *mbox_request_channel_by_fwnode(struct mbox_client *cl,
+						 int index)
+{
+	struct device *dev = cl->dev;
+	struct mbox_controller *mbox;
+	struct fwnode_reference_args args;
+	struct fwnode_handle *fwnode = NULL;
+	struct of_phandle_args spec;
+	struct mbox_chan *chan;
+	unsigned int i;
+	int ret;
+
+	if (!dev || !dev_fwnode(dev)) {
+		pr_debug("%s: No owner device node\n", __func__);
+		return ERR_PTR(-ENODEV);
+	}
+
+	mutex_lock(&con_mutex);
+
+	if (fwnode_property_get_reference_args(dev_fwnode(dev), "mboxes",
+					       NULL, 1, index, &args)) {
+		dev_dbg(dev, "%s: can't parse \"mboxes\" property\n", __func__);
+		mutex_unlock(&con_mutex);
+		return ERR_PTR(-ENODEV);
+	}
+
+	fwnode = args.fwnode;
+	if (!fwnode) {
+		dev_dbg(dev, "%s: mbox device not found\n", __func__);
+		mutex_unlock(&con_mutex);
+		return ERR_PTR(-ENODEV);
+	}
+
+	spec.np = args.fwnode->dev->of_node;
+	spec.args_count = args.nargs;
+	for (i = 0; i < MAX_PHANDLE_ARGS; i++)
+		spec.args[i] = i < args.nargs ? args.args[i] : 0;
+
+	chan = ERR_PTR(-EPROBE_DEFER);
+	list_for_each_entry(mbox, &mbox_cons, node) {
+		if (dev_fwnode(mbox->dev) == fwnode) {
+			chan = mbox->of_xlate(mbox, &spec);
+			if (!IS_ERR(chan))
+				break;
+		}
+	}
+
+	fwnode_handle_put(fwnode);
+
+	if (IS_ERR(chan)) {
+		mutex_unlock(&con_mutex);
+		return chan;
+	}
+
+	ret = __mbox_bind_client(chan, cl);
+	if (ret)
+		chan = ERR_PTR(ret);
+
+	mutex_unlock(&con_mutex);
+	return chan;
+}
+EXPORT_SYMBOL(mbox_request_channel_by_fwnode);
 
 /**
  * mbox_free_channel - The client relinquishes control of a mailbox

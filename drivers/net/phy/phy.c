@@ -1311,7 +1311,9 @@ static void phy_error_precise(struct phy_device *phydev,
 			      const void *func, int err)
 {
 	WARN(1, "%pS: returned: %d\n", func, err);
+	mutex_lock(&phydev->lock);
 	phy_process_error(phydev);
+	mutex_unlock(&phydev->lock);
 }
 
 /**

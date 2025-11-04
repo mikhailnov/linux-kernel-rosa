@@ -40,6 +40,15 @@ config ARCH_APPLE
 	  This enables support for Apple's in-house ARM SoC family, starting
 	  with the Apple M1.
 
+config ARCH_BAIKAL
+	bool "Baikal Electronics SoC family"
+	select DW_APB_TIMER_OF
+	select GPIOLIB
+	select GPIO_DWAPB
+	select PINCTRL
+	help
+	  This enables support for Baikal Electronics SoC family
+
 menuconfig ARCH_BCM
 	bool "Broadcom SoC Support"
 

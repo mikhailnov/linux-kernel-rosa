@@ -153,7 +153,8 @@ static u32 dwmac1000_configure_fc(u32 csr6, int rxfifosz)
 
 static void dwmac1000_dma_operation_mode_rx(struct stmmac_priv *priv,
 					    void __iomem *ioaddr, int mode,
-					    u32 channel, int fifosz, u8 qmode)
+					    u32 channel, int fifosz, u8 qmode,
+					    bool rxall)
 {
 	u32 csr6 = readl(ioaddr + DMA_CHAN_CONTROL(channel));
 
@@ -172,6 +173,17 @@ static void dwmac1000_dma_operation_mode_rx(struct stmmac_priv *priv,
 			csr6 |= DMA_CONTROL_RTC_96;
 		else
 			csr6 |= DMA_CONTROL_RTC_128;
+	}
+
+	/* Permit errorneous frames (IP/TCP/UDP csum, overflow, giant, etc) */
+	csr6 &= ~DMA_CONTROL_PEF_MASK;
+	if (rxall) {
+		csr6 |= DMA_CONTROL_DT | DMA_CONTROL_FEF | DMA_CONTROL_FUF;
+	} else {
+		/* Drop giant frames to unify the GMACs semantics (available
+		 * since v3.70a if no giant frame status reported via Rx descs).
+		 */
+		csr6 |= DMA_CONTROL_DGF;
 	}
 
 	/* Configure flow control based on rx fifo size */
@@ -225,6 +237,20 @@ static void dwmac1000_dump_dma_regs(struct stmmac_priv *priv,
 				readl(ioaddr + DMA_BUS_MODE + i * 4);
 }
 
+static bool dwmac1000_det_hw_vlhash(void __iomem *ioaddr)
+{
+	u32 tmp;
+
+	writel(0xffff, ioaddr + GMAC_VLAN_HASH_TABLE);
+	tmp = readl(ioaddr + GMAC_VLAN_HASH_TABLE);
+	if (tmp == 0xffff) {
+		writel(0x0, ioaddr + GMAC_VLAN_HASH_TABLE);
+		return true;
+	}
+
+	return false;
+}
+
 static int dwmac1000_get_hw_feature(void __iomem *ioaddr,
 				    struct dma_features *dma_cap)
 {
@@ -266,6 +292,11 @@ static int dwmac1000_get_hw_feature(void __iomem *ioaddr,
 	dma_cap->number_tx_channel = (hw_cap & DMA_HW_FEAT_TXCHCNT) >> 22;
 	/* Alternate (enhanced) DESC mode */
 	dma_cap->enh_desc = (hw_cap & DMA_HW_FEAT_ENHDESSEL) >> 24;
+	/* Source address/VLAN Insertion/Replacement/Deletion Engine */
+	dma_cap->vlins = (hw_cap & DMA_HW_FEAT_SAVLANINS) >> 27;
+
+	/* 16-bit VLAN Hash Filter (flag is unavailable in the CSR) */
+	dma_cap->vlhash = dwmac1000_det_hw_vlhash(ioaddr);
 
 	return 0;
 }
@@ -285,6 +316,7 @@ const struct stmmac_dma_ops dwmac1000_dma_ops = {
 	.dump_regs = dwmac1000_dump_dma_regs,
 	.dma_rx_mode = dwmac1000_dma_operation_mode_rx,
 	.dma_tx_mode = dwmac1000_dma_operation_mode_tx,
+	.dma_diagnostic_fr = dwmac_dma_diagnostic_fr,
 	.enable_dma_transmission = dwmac_enable_dma_transmission,
 	.enable_dma_irq = dwmac_enable_dma_irq,
 	.disable_dma_irq = dwmac_disable_dma_irq,

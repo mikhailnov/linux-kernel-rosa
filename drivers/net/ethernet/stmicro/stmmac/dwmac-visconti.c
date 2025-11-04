@@ -202,11 +202,8 @@ static int visconti_eth_clock_probe(struct platform_device *pdev,
 static void visconti_eth_clock_remove(struct platform_device *pdev)
 {
 	struct visconti_eth *dwmac = get_stmmac_bsp_priv(&pdev->dev);
-	struct net_device *ndev = platform_get_drvdata(pdev);
-	struct stmmac_priv *priv = netdev_priv(ndev);
 
 	clk_disable_unprepare(dwmac->phy_ref_clk);
-	clk_disable_unprepare(priv->plat->stmmac_clk);
 }
 
 static int visconti_eth_dwmac_probe(struct platform_device *pdev)

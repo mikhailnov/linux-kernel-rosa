@@ -716,9 +716,11 @@ static int nau8822_set_pll(struct snd_soc_dai *dai, int pll_id, int source,
 	struct nau8822_pll *pll_param = &nau8822->pll;
 	int ret, fs;
 
+	/* Force PLL calculation
 	if (freq_in == pll_param->freq_in &&
 	    freq_out == pll_param->freq_out)
 		return 0;
+	*/
 
 	if (freq_out == 0) {
 		dev_dbg(component->dev, "PLL disabled\n");

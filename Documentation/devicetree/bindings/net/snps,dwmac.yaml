@@ -519,6 +519,13 @@ properties:
       Enables the TSO feature otherwise it will be managed by MAC HW capability
       register.
 
+  snps,data-width:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      System data bus width is limited with 8 and 16 bytes for DW
+      xGMAC and with 4, 8 and 16 for DW GMACs of recent versions.
+    enum: [4, 8, 16]
+
   mdio:
     $ref: mdio.yaml#
     unevaluatedProperties: false

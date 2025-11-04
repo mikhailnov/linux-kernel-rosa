@@ -6,6 +6,7 @@
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/export.h>
+#include <linux/property.h>
 #include <sound/core.h>
 #include <sound/hdaudio.h>
 #include <sound/hda_register.h>
@@ -229,6 +230,9 @@ static int snd_hdac_bus_send_cmd_corb(struct hdac_bus *bus, unsigned int val)
 	unsigned int wp, rp;
 
 	spin_lock_irq(&bus->reg_lock);
+
+	if (device_property_read_bool(bus->dev, "increment-codec-address"))
+		val = val + 0x10000000;
 
 	bus->last_cmd[azx_command_addr(val)] = val;
 

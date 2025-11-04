@@ -16,6 +16,7 @@
 #include <linux/errno.h>
 #include <linux/export.h>
 #include <linux/gpio/consumer.h>
+#include <linux/dma-mapping.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -451,6 +452,14 @@ i2c_dw_xfer_msg(struct dw_i2c_dev *dev)
 				need_restart = true;
 		}
 
+		dev->msg_read = !!(flags & I2C_M_RD);
+
+		if (buf_len > DW_IC_DMA_THRESHOLD && dev->dma_available && !(flags & I2C_M_RECV_LEN)) {
+			regmap_update_bits(dev->map,  DW_IC_INTR_MASK, DW_IC_INTR_TX_EMPTY, 0);
+			dev->use_dma = true;
+			return;
+		}
+
 		regmap_read(dev->map, DW_IC_TXFLR, &flr);
 		tx_limit = dev->tx_fifo_depth - flr;
 
@@ -709,7 +718,8 @@ static void i2c_dw_process_transfer(struct dw_i2c_dev *dev, unsigned int stat)
 	 */
 
 tx_aborted:
-	if (((stat & (DW_IC_INTR_TX_ABRT | DW_IC_INTR_STOP_DET)) || dev->msg_err) &&
+	if (((stat & (DW_IC_INTR_TX_ABRT | DW_IC_INTR_STOP_DET))
+				|| dev->msg_err || dev->use_dma) &&
 	     (dev->rx_outstanding == 0))
 		complete(&dev->cmd_complete);
 	else if (unlikely(dev->flags & ACCESS_INTR_MASK)) {
@@ -783,6 +793,22 @@ static int i2c_dw_wait_transfer(struct dw_i2c_dev *dev)
 	return ret ? 0 : -ETIMEDOUT;
 }
 
+static void i2c_dw_dma_write_complete(void *args) {
+	struct dw_i2c_dev *dev = args;
+	dev->msg_write_idx++;
+	if (!dev->msg_read)
+		complete(&dev->cmd_complete);
+}
+
+static void i2c_dw_dma_read_complete(void *args) {
+	struct dw_i2c_dev *dev = args;
+	struct i2c_msg *msg = dev->msgs + dev->msg_read_idx;
+	memcpy(msg->buf, dev->rx_dma.buf, msg->len);
+	dev->rx_outstanding = 0;
+	dev->msg_read_idx++;
+	complete(&dev->cmd_complete);
+}
+
 /*
  * Prepare controller for a transaction and call i2c_dw_xfer_msg.
  */
@@ -814,6 +840,7 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 	dev->status = 0;
 	dev->abort_source = 0;
 	dev->rx_outstanding = 0;
+	dev->use_dma = false;
 
 	ret = i2c_dw_acquire_lock(dev);
 	if (ret)
@@ -826,15 +853,97 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 	/* Start the transfers */
 	i2c_dw_xfer_init(dev);
 
-	/* Wait for tx to complete */
-	ret = i2c_dw_wait_transfer(dev);
-	if (ret) {
-		dev_err(dev->dev, "controller timed out\n");
-		/* i2c_dw_init_master() implicitly disables the adapter */
-		i2c_recover_bus(&dev->adapter);
-		i2c_dw_init_master(dev);
-		goto done;
-	}
+	do {
+		/* Wait for tx to complete */
+		ret = i2c_dw_wait_transfer(dev);
+		if (ret) {
+			dev_err(dev->dev, "controller timed out\n");
+			/* i2c_dw_init_master() implicitly disables the adapter */
+			i2c_recover_bus(&dev->adapter);
+			i2c_dw_init_master(dev);
+			goto done;
+		}
+
+		if (dev->use_dma && !(dev->cmd_err || dev->msg_err)) {
+			dev->use_dma = false;
+			reinit_completion(&dev->cmd_complete);
+
+			struct dma_async_tx_descriptor *dma_desc;
+			struct i2c_msg *msg = msgs + dev->msg_write_idx;
+			u32 maxburst = (-(msg->len | DW_IC_DMA_MAXBURST)) &
+				(msg->len | DW_IC_DMA_MAXBURST);
+			struct dma_slave_config slv_config = {0};
+			slv_config.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+			slv_config.dst_addr = (dma_addr_t)dev->phys_addr + DW_IC_DATA_CMD;
+			slv_config.dst_addr_width = dev->msg_read ?
+				DMA_SLAVE_BUSWIDTH_2_BYTES :
+				DMA_SLAVE_BUSWIDTH_1_BYTE;
+			slv_config.dst_maxburst = maxburst;
+			slv_config.device_fc = false;
+			slv_config.direction = DMA_MEM_TO_DEV;
+			dmaengine_slave_config(dev->dma_chan_tx, &slv_config);
+
+			if (!dev->msg_read) {
+				memcpy(dev->tx_dma.buf, msg->buf, msg->len);
+				dma_desc = dmaengine_prep_slave_single(
+						dev->dma_chan_tx,
+						dev->tx_dma.phys, msg->len,
+						DMA_MEM_TO_DEV,
+						DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+				regmap_write(dev->map, DW_IC_DMA_CR, DW_IC_DMA_CR_TDMAE);
+			} else {
+				regmap_update_bits(dev->map, DW_IC_INTR_MASK,
+						DW_IC_INTR_RX_FULL | DW_IC_INTR_STOP_DET, 0);
+				dev->msg_read_idx = dev->msg_write_idx;
+				dma_desc = dmaengine_prep_slave_single(
+						dev->dma_chan_rx,
+						dev->rx_dma.phys, msg->len,
+						DMA_DEV_TO_MEM,
+						DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+				dma_desc->callback = i2c_dw_dma_read_complete;
+				dma_desc->callback_param = dev;
+				dmaengine_submit(dma_desc);
+				dma_async_issue_pending(dev->dma_chan_rx);
+
+				dev->rx_outstanding = msg->len;
+				dma_desc = dmaengine_prep_slave_single(
+						dev->dma_chan_tx,
+						dev->cmd_dma.phys, msg->len * 2,
+						DMA_MEM_TO_DEV,
+						DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+				regmap_write(dev->map, DW_IC_DMA_CR,
+						DW_IC_DMA_CR_TDMAE | DW_IC_DMA_CR_RDMAE);
+			}
+			dma_desc->callback = i2c_dw_dma_write_complete;
+			dma_desc->callback_param = dev;
+			dmaengine_submit(dma_desc);
+			dma_async_issue_pending(dev->dma_chan_tx);
+
+			ret = i2c_dw_wait_transfer(dev);
+
+			dmaengine_terminate_sync(dev->dma_chan_tx);
+			if (dev->msg_read)
+				dmaengine_terminate_sync(dev->dma_chan_rx);
+
+			regmap_write(dev->map, DW_IC_DMA_CR, 0);
+
+			if (ret) {
+				dev_info(dev->dev, "DMA timed out\n");
+				goto done;
+			}
+
+			if (dev->cmd_err || dev->msg_err) {
+				break;
+			}
+
+			if (dev->msg_write_idx < num) {
+				reinit_completion(&dev->cmd_complete);
+				regmap_write(dev->map, DW_IC_INTR_MASK, DW_IC_INTR_MASTER_MASK);
+			}
+		} else {
+			break;
+		}
+	} while (dev->msg_write_idx < num);
 
 	/*
 	 * This happens rarely (~1:500) and is hard to reproduce. Debug trace
@@ -979,6 +1088,88 @@ static int i2c_dw_init_recovery_info(struct dw_i2c_dev *dev)
 	return 0;
 }
 
+static int i2c_dw_alloc_dma_buf(struct dw_i2c_dev *dev, struct dw_i2c_dma_buf *buf,
+		unsigned int size) {
+	buf->size = size;
+	buf->buf = dma_alloc_coherent(dev->dma_dev,
+			buf->size, &buf->phys,
+			GFP_KERNEL | __GFP_NOWARN);
+	if (!buf->buf) {
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static void i2c_dw_init_dma(struct dw_i2c_dev *dev) {
+	int ret = 0;
+
+	struct dma_slave_config slv_config = {0};
+	slv_config.src_addr = (dma_addr_t)dev->phys_addr + DW_IC_DATA_CMD;
+	slv_config.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	slv_config.src_maxburst = 1;
+	slv_config.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	slv_config.device_fc = false;
+
+	dev->dma_chan_tx = dma_request_chan(dev->dev, "tx");
+	if (IS_ERR(dev->dma_chan_tx)) {
+		ret = PTR_ERR(dev->dma_chan_tx);
+		dev->dma_chan_tx = NULL;
+		goto error;
+	}
+
+	dev->dma_chan_rx = dma_request_chan(dev->dev, "rx");
+	if (IS_ERR(dev->dma_chan_rx)) {
+		ret = PTR_ERR(dev->dma_chan_rx);
+		dev->dma_chan_rx = NULL;
+		goto error;
+	}
+
+	slv_config.direction = DMA_DEV_TO_MEM;
+	if (dmaengine_slave_config(dev->dma_chan_rx, &slv_config)) {
+		dev_err(dev->dev, "failed to configure rx DMA channel\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+	dev->dma_dev = dev->dma_chan_tx->device->dev;
+
+	if (i2c_dw_alloc_dma_buf(dev, &dev->cmd_dma, DW_IC_DMA_BUF_SIZE * 2)) {
+		dev_err(dev->dev, "failed to allocate DMA cmd buffer\n");
+		ret = -EINVAL;
+		goto error;
+	}
+	memset(dev->cmd_dma.buf, 1, dev->cmd_dma.size);
+
+	if (i2c_dw_alloc_dma_buf(dev, &dev->tx_dma, DW_IC_DMA_BUF_SIZE)) {
+		dev_err(dev->dev, "failed to allocate DMA tx buffer\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+	if (i2c_dw_alloc_dma_buf(dev, &dev->rx_dma, DW_IC_DMA_BUF_SIZE)) {
+		dev_err(dev->dev, "failed to allocate DMA rx buffer\n");
+		ret = -EINVAL;
+		goto error;
+	}
+
+	regmap_write(dev->map, DW_IC_DMA_TDLR, 0);
+	regmap_write(dev->map, DW_IC_DMA_RDLR, 0);
+
+	dev->dma_available = true;
+
+	return;
+
+error:
+	dev->dma_available = false;
+
+	if (ret != -EPROBE_DEFER)
+		dev_info(dev->dev, "can't get DMA channel, continue without DMA support\n");
+	if (dev->dma_chan_rx)
+		dma_release_channel(dev->dma_chan_rx);
+	if (dev->dma_chan_tx)
+		dma_release_channel(dev->dma_chan_tx);
+}
+
 int i2c_dw_probe_master(struct dw_i2c_dev *dev)
 {
 	struct i2c_adapter *adap = &dev->adapter;
@@ -1006,6 +1197,8 @@ int i2c_dw_probe_master(struct dw_i2c_dev *dev)
 	ret = i2c_dw_acquire_lock(dev);
 	if (ret)
 		return ret;
+
+	i2c_dw_init_dma(dev);
 
 	/*
 	 * On AMD platforms BIOS advertises the bus clear feature

@@ -19,6 +19,7 @@
 #define GMAC_MII_DATA		0x00000014	/* MII Data */
 #define GMAC_FLOW_CTRL		0x00000018	/* Flow Control */
 #define GMAC_VLAN_TAG		0x0000001c	/* VLAN Tag */
+#define GMAC_VERSION		0x00000020	/* GMAC version register */
 #define GMAC_DEBUG		0x00000024	/* GMAC debug register */
 #define GMAC_WAKEUP_FILTER	0x00000028	/* Wake-up Frame Filter */
 
@@ -85,23 +86,22 @@ enum power_event {
 #define GMAC_PCS_BASE		0x000000c0	/* PCS register base */
 #define GMAC_RGSMIIIS		0x000000d8	/* RGMII/SMII status */
 
+/* GMAC Watchdog timeout for received frames register */
+#define GMAC_WDT		0x000000dc
+
+/* VLAN Tag Inclusion or Replacement register */
+#define GMAC_VLAN_INCL		0x00000584
+
+/* VLAN Hash register */
+#define GMAC_VLAN_HASH_TABLE	0x00000588
+
 /* SGMII/RGMII status register */
-#define GMAC_RGSMIIIS_LNKMODE		BIT(0)
-#define GMAC_RGSMIIIS_SPEED		GENMASK(2, 1)
-#define GMAC_RGSMIIIS_SPEED_SHIFT	1
-#define GMAC_RGSMIIIS_LNKSTS		BIT(3)
-#define GMAC_RGSMIIIS_JABTO		BIT(4)
-#define GMAC_RGSMIIIS_FALSECARDET	BIT(5)
+#define GMAC_RGSMIIIS_RS_STAT		GENMASK(15, 0)
 #define GMAC_RGSMIIIS_SMIDRXS		BIT(16)
-/* LNKMOD */
-#define GMAC_RGSMIIIS_LNKMOD_MASK	0x1
-/* LNKSPEED */
-#define GMAC_RGSMIIIS_SPEED_125		0x2
-#define GMAC_RGSMIIIS_SPEED_25		0x1
-#define GMAC_RGSMIIIS_SPEED_2_5		0x0
 
 /* GMAC Configuration defines */
 #define GMAC_CONTROL_2K 0x08000000	/* IEEE 802.3as 2K packets */
+#define GMAC_CONTROL_CST 0x02000000	/* CRC Stripping for Type Frames */
 #define GMAC_CONTROL_TC	0x01000000	/* Transmit Conf. in RGMII/SGMII */
 #define GMAC_CONTROL_WD	0x00800000	/* Disable Watchdog on receive */
 #define GMAC_CONTROL_JD	0x00400000	/* Jabber disable */
@@ -126,8 +126,7 @@ enum inter_frame_gap {
 #define GMAC_CONTROL_TE		0x00000008	/* Transmitter Enable */
 #define GMAC_CONTROL_RE		0x00000004	/* Receiver Enable */
 
-#define GMAC_CORE_INIT (GMAC_CONTROL_JD | GMAC_CONTROL_PS | \
-			GMAC_CONTROL_BE | GMAC_CONTROL_DCRS)
+#define GMAC_CORE_INIT (GMAC_CONTROL_PS | GMAC_CONTROL_BE | GMAC_CONTROL_DCRS)
 
 /* GMAC Frame Filter defines */
 #define GMAC_FRAME_FILTER_PR	0x00000001	/* Promiscuous Mode */
@@ -140,6 +139,7 @@ enum inter_frame_gap {
 #define GMAC_FRAME_FILTER_SAIF	0x00000100	/* Inverse Filtering */
 #define GMAC_FRAME_FILTER_SAF	0x00000200	/* Source Address Filter */
 #define GMAC_FRAME_FILTER_HPF	0x00000400	/* Hash or perfect Filter */
+#define GMAC_FRAME_FILTER_VTFE	0x00010000	/* VLAN Tag Filter */
 #define GMAC_FRAME_FILTER_RA	0x80000000	/* Receive all mode */
 /* GMII ADDR  defines */
 #define GMAC_MII_ADDR_WRITE	0x00000002	/* MII Write */
@@ -151,6 +151,21 @@ enum inter_frame_gap {
 #define GMAC_FLOW_CTRL_RFE	0x00000004	/* Rx Flow Control Enable */
 #define GMAC_FLOW_CTRL_TFE	0x00000002	/* Tx Flow Control Enable */
 #define GMAC_FLOW_CTRL_FCB_BPA	0x00000001	/* Flow Control Busy ... */
+/* VLAN Tag defines */
+#define GMAC_VLAN_VTHM		BIT(19)
+#define GMAC_VLAN_ESVL		BIT(18)
+#define GMAC_VLAN_ETV		BIT(16)
+#define GMAC_VLAN_VID		GENMASK(15, 0)
+/* Watchdog timeout for received frames defines */
+#define GMAC_WDT_PWE		BIT(16)
+#define GMAC_WDT_WTO		GENMASK(13, 0)
+#define GMAC_WDT_SHIFT		0
+/* VLAN Tag inclusing defines */
+#define GMAC_VLAN_CSVL		BIT(19)
+#define GMAC_VLAN_VLC		GENMASK(17, 16)
+#define GMAC_VLAN_VLC_SHIFT	16
+#define GMAC_VLAN_VLT		GENMASK(15, 0)
+#define GMAC_VLAN_VLT_SHIFT	0
 
 /* DEBUG Register defines */
 /* MTL TxStatus FIFO */
@@ -261,6 +276,9 @@ enum ttc_control {
 #define DMA_CONTROL_EFC		0x00000100
 #define DMA_CONTROL_FEF		0x00000080
 #define DMA_CONTROL_FUF		0x00000040
+#define DMA_CONTROL_DGF		0x00000020
+#define DMA_CONTROL_PEF_MASK	(DMA_CONTROL_DT | DMA_CONTROL_FEF | \
+				 DMA_CONTROL_FUF | DMA_CONTROL_DGF)
 
 /* Receive flow control activation field
  * RFA field in DMA control register, bits 23,10:9

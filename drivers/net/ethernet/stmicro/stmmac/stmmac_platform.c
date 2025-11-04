@@ -8,6 +8,7 @@
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
 
+#include <linux/acpi.h>
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
@@ -87,23 +88,28 @@ static int dwmac1000_validate_ucast_entries(struct device *dev,
 /**
  * stmmac_axi_setup - parse DT parameters for programming the AXI register
  * @pdev: platform device
+ * @plat: enet data
  * Description:
  * if required, from device-tree the AXI internal register can be tuned
  * by using platform parameters.
+ * Return value:
+ * 0 on success and negative error otherwise.
  */
-static struct stmmac_axi *stmmac_axi_setup(struct platform_device *pdev)
+static int stmmac_axi_setup(struct platform_device *pdev,
+			    struct plat_stmmacenet_data *plat)
 {
 	struct device_node *np;
 	struct stmmac_axi *axi;
+	enum dev_dma_attr attr;
 
 	np = of_parse_phandle(pdev->dev.of_node, "snps,axi-config", 0);
 	if (!np)
-		return NULL;
+		return 0;
 
 	axi = devm_kzalloc(&pdev->dev, sizeof(*axi), GFP_KERNEL);
 	if (!axi) {
 		of_node_put(np);
-		return ERR_PTR(-ENOMEM);
+		return -ENOMEM;
 	}
 
 	axi->axi_lpi_en = of_property_read_bool(np, "snps,lpi_en");
@@ -120,7 +126,15 @@ static struct stmmac_axi *stmmac_axi_setup(struct platform_device *pdev)
 	of_property_read_u32_array(np, "snps,blen", axi->axi_blen, AXI_BLEN);
 	of_node_put(np);
 
-	return axi;
+	attr = device_get_dma_attr(&pdev->dev);
+	if (attr == DEV_DMA_NOT_SUPPORTED)
+		return -ENODEV;
+
+	axi->axi_cc = (attr == DEV_DMA_COHERENT);
+
+	plat->axi = axi;
+
+	return 0;
 }
 
 /**
@@ -370,8 +384,10 @@ static int stmmac_mdio_setup(struct plat_stmmacenet_data *plat,
 		plat->mdio_bus_data = devm_kzalloc(dev,
 						   sizeof(*plat->mdio_bus_data),
 						   GFP_KERNEL);
-		if (!plat->mdio_bus_data)
+		if (!plat->mdio_bus_data) {
+			of_node_put(plat->mdio_node);
 			return -ENOMEM;
+		}
 
 		plat->mdio_bus_data->needs_reset = true;
 	}
@@ -406,6 +422,22 @@ static int stmmac_of_get_mac_mode(struct device_node *np)
 }
 
 /**
+ * stmmac_remove_config_dt - undo the effects of stmmac_probe_config_dt()
+ * @pdev: platform_device structure
+ * @plat: driver data platform structure
+ *
+ * Release resources claimed by stmmac_probe_config_dt().
+ */
+static void stmmac_remove_config_dt(struct platform_device *pdev,
+				    struct plat_stmmacenet_data *plat)
+{
+	clk_disable_unprepare(plat->stmmac_clk);
+	clk_disable_unprepare(plat->pclk);
+	of_node_put(plat->phy_node);
+	of_node_put(plat->mdio_node);
+}
+
+/**
  * stmmac_probe_config_dt - parse device-tree driver parameters
  * @pdev: platform_device structure
  * @mac: MAC address to use
@@ -421,7 +453,6 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 	struct stmmac_dma_cfg *dma_cfg;
 	static int bus_id = -ENODEV;
 	int phy_mode;
-	void *ret;
 	int rc;
 
 	plat = devm_kzalloc(&pdev->dev, sizeof(*plat), GFP_KERNEL);
@@ -481,25 +512,24 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 		dev_warn(&pdev->dev, "snps,phy-addr property is deprecated\n");
 
 	rc = stmmac_mdio_setup(plat, np, &pdev->dev);
-	if (rc) {
-		ret = ERR_PTR(rc);
-		goto error_put_phy;
-	}
+	if (rc)
+		goto error_dt_phy_parse;
 
 	of_property_read_u32(np, "tx-fifo-depth", &plat->tx_fifo_size);
 
 	of_property_read_u32(np, "rx-fifo-depth", &plat->rx_fifo_size);
+
+	/* Default to 16 bytes data bus width to be on a safe side at the
+	 * PBL upper limit and the Rx DMA buffer alignment calculation.
+	 */
+	if (of_property_read_u32(np, "snps,data-width", &plat->data_width))
+		plat->data_width = 16;
 
 	plat->force_sf_dma_mode =
 		of_property_read_bool(np, "snps,force_sf_dma_mode");
 
 	if (of_property_read_bool(np, "snps,en-tx-lpi-clockgating"))
 		plat->flags |= STMMAC_FLAG_EN_TX_LPI_CLOCKGATING;
-
-	/* Set the maxmtu to a default of JUMBO_LEN in case the
-	 * parameter is not present in the device tree.
-	 */
-	plat->maxmtu = JUMBO_LEN;
 
 	/* Set default value for multicast hash bins */
 	plat->multicast_filter_bins = HASH_TABLE_SIZE;
@@ -573,8 +603,8 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 	dma_cfg = devm_kzalloc(&pdev->dev, sizeof(*dma_cfg),
 			       GFP_KERNEL);
 	if (!dma_cfg) {
-		ret = ERR_PTR(-ENOMEM);
-		goto error_put_mdio;
+		rc = -ENOMEM;
+		goto error_dma_cfg_alloc;
 	}
 	plat->dma_cfg = dma_cfg;
 
@@ -598,13 +628,13 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 
 	of_property_read_u32(np, "snps,ps-speed", &plat->mac_port_sel_speed);
 
-	plat->axi = stmmac_axi_setup(pdev);
+	rc = stmmac_axi_setup(pdev, plat);
+	if (rc)
+		goto error_dma_cfg_alloc;
 
 	rc = stmmac_mtl_setup(pdev, plat);
-	if (rc) {
-		ret = ERR_PTR(rc);
-		goto error_put_mdio;
-	}
+	if (rc)
+		goto error_dma_cfg_alloc;
 
 	/* clock setup */
 	if (!of_device_is_compatible(np, "snps,dwc-qos-ethernet-4.10")) {
@@ -619,7 +649,7 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 
 	plat->pclk = devm_clk_get_optional(&pdev->dev, "pclk");
 	if (IS_ERR(plat->pclk)) {
-		ret = plat->pclk;
+		rc = PTR_ERR(plat->pclk);
 		goto error_pclk_get;
 	}
 	clk_prepare_enable(plat->pclk);
@@ -638,14 +668,14 @@ stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 	plat->stmmac_rst = devm_reset_control_get_optional(&pdev->dev,
 							   STMMAC_RESOURCE_NAME);
 	if (IS_ERR(plat->stmmac_rst)) {
-		ret = plat->stmmac_rst;
+		rc = PTR_ERR(plat->stmmac_rst);
 		goto error_hw_init;
 	}
 
 	plat->stmmac_ahb_rst = devm_reset_control_get_optional_shared(
 							&pdev->dev, "ahb");
 	if (IS_ERR(plat->stmmac_ahb_rst)) {
-		ret = plat->stmmac_ahb_rst;
+		rc = PTR_ERR(plat->stmmac_ahb_rst);
 		goto error_hw_init;
 	}
 
@@ -655,29 +685,28 @@ error_hw_init:
 	clk_disable_unprepare(plat->pclk);
 error_pclk_get:
 	clk_disable_unprepare(plat->stmmac_clk);
-error_put_mdio:
+error_dma_cfg_alloc:
 	of_node_put(plat->mdio_node);
-error_put_phy:
+error_dt_phy_parse:
 	of_node_put(plat->phy_node);
 
-	return ret;
+	return ERR_PTR(rc);
 }
 
 static void devm_stmmac_remove_config_dt(void *data)
 {
 	struct plat_stmmacenet_data *plat = data;
 
-	clk_disable_unprepare(plat->stmmac_clk);
-	clk_disable_unprepare(plat->pclk);
-	of_node_put(plat->mdio_node);
-	of_node_put(plat->phy_node);
+	/* Platform data argument is unused */
+	stmmac_remove_config_dt(NULL, plat);
 }
 
 /**
  * devm_stmmac_probe_config_dt
  * @pdev: platform_device structure
  * @mac: MAC address to use
- * Description: Devres variant of stmmac_probe_config_dt().
+ * Description: Devres variant of stmmac_probe_config_dt(). Does not require
+ * the user to call stmmac_remove_config_dt() at driver detach.
  */
 struct plat_stmmacenet_data *
 devm_stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
@@ -705,9 +734,206 @@ devm_stmmac_probe_config_dt(struct platform_device *pdev, u8 *mac)
 #endif /* CONFIG_OF */
 EXPORT_SYMBOL_GPL(devm_stmmac_probe_config_dt);
 
+#ifdef CONFIG_ACPI
+static struct plat_stmmacenet_data *
+stmmac_probe_config_acpi(struct platform_device *pdev, u8 *mac)
+{
+	struct plat_stmmacenet_data *plat;
+	struct device *dev = &pdev->dev;
+	int rc;
+
+	plat = devm_kzalloc(&pdev->dev, sizeof(*plat), GFP_KERNEL);
+	if (!plat)
+		return ERR_PTR(-ENOMEM);
+
+	rc = nvmem_get_mac_address(&pdev->dev, mac);
+	if (rc) {
+		if (rc == -EPROBE_DEFER)
+			return ERR_PTR(rc);
+
+		eth_zero_addr(mac);
+	}
+
+	plat->phy_interface = device_get_phy_mode(&pdev->dev);
+	if (plat->phy_interface < 0)
+		return ERR_PTR(plat->phy_interface);
+
+	plat->mac_interface = plat->phy_interface;
+
+	plat->port_node = dev_fwnode(dev);
+
+	device_property_read_u32(dev, "max-speed", &plat->max_speed);
+
+	/* Baikal specific GPHY ACPI setup */
+	if (!device_property_read_u32(dev, "reg", &plat->phy_addr)) {
+		plat->bus_id = ACPI_COMPANION(dev)->pnp.instance_no;
+
+		plat->phy_node = kzalloc(sizeof(struct device_node), GFP_KERNEL);
+		if (!plat->phy_node)
+			return ERR_PTR(-ENOMEM);
+
+		if (plat->phy_addr >= PHY_MAX_ADDR) {
+			dev_err(dev, "PHY address %i is too large\n",
+					plat->phy_addr);
+			return ERR_PTR(-EINVAL);
+		}
+
+		plat->mdio_bus_data = devm_kzalloc(dev, sizeof(*plat->mdio_bus_data),
+						   GFP_KERNEL);
+		if (!plat->mdio_bus_data)
+			return ERR_PTR(-ENOMEM);
+
+		plat->mdio_bus_data->phy_mask = ~0;
+	}
+
+	device_property_read_u32(dev, "tx-fifo-depth", &plat->tx_fifo_size);
+	device_property_read_u32(dev, "rx-fifo-depth", &plat->rx_fifo_size);
+
+	device_property_read_u32(dev, "max-frame-size", &plat->maxmtu);
+	if (!plat->maxmtu)
+		plat->maxmtu = JUMBO_LEN;
+
+	/* dma setup */
+
+	plat->dma_cfg = devm_kzalloc(dev, sizeof(*plat->dma_cfg),
+				     GFP_KERNEL);
+	if (!plat->dma_cfg) {
+		return ERR_PTR(-ENOMEM);
+	}
+
+	device_property_read_u32(dev, "snps,pbl", &plat->dma_cfg->pbl);
+	if (!plat->dma_cfg->pbl)
+		plat->dma_cfg->pbl = DEFAULT_DMA_PBL;
+	device_property_read_u32(dev, "snps,txpbl", &plat->dma_cfg->txpbl);
+	device_property_read_u32(dev, "snps,rxpbl", &plat->dma_cfg->rxpbl);
+	plat->dma_cfg->pblx8 = !device_property_read_bool(dev, "snps,no-pbl-x8");
+
+	plat->dma_cfg->fixed_burst = device_property_read_bool(dev, "snps,fixed-burst");
+
+	/* axi setup */
+
+	plat->axi = devm_kzalloc(dev, sizeof(*plat->axi), GFP_KERNEL);
+	if (!plat->axi) {
+		return ERR_PTR(-ENOMEM);
+	}
+
+	device_property_read_u32_array(dev, "snps,blen",
+				       plat->axi->axi_blen, AXI_BLEN);
+
+	plat->axi->axi_cc = device_get_dma_attr(dev) == DEV_DMA_COHERENT;
+
+	if (device_property_read_u32(dev, "snps,wr_osr_lmt", &plat->axi->axi_wr_osr_lmt))
+		plat->axi->axi_wr_osr_lmt = 1;
+	if (device_property_read_u32(dev, "snps,rd_osr_lmt", &plat->axi->axi_rd_osr_lmt))
+		plat->axi->axi_rd_osr_lmt = 1;
+
+	/* mtl setup */
+
+	if (device_property_read_u32(dev, "snps,rx-queues-to-use",
+				     &plat->rx_queues_to_use))
+		plat->rx_queues_to_use = 1;
+
+	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;
+
+	for (int queue = 0; queue < plat->rx_queues_to_use; queue++) {
+		plat->rx_queues_cfg[queue].mode_to_use = MTL_QUEUE_DCB;
+		plat->rx_queues_cfg[queue].prio = 1 << queue;
+		plat->rx_queues_cfg[queue].use_prio = true;
+	}
+
+	if (device_property_read_u32(dev, "snps,tx-queues-to-use",
+				     &plat->tx_queues_to_use))
+		plat->tx_queues_to_use = 1;
+
+	plat->tx_sched_algorithm = MTL_TX_ALGORITHM_SP;
+
+	for (int queue = 0; queue < plat->tx_queues_to_use; queue++) {
+		plat->tx_queues_cfg[queue].mode_to_use = MTL_QUEUE_DCB;
+		plat->tx_queues_cfg[queue].prio = 1 << queue;
+		plat->tx_queues_cfg[queue].use_prio = true;
+	}
+
+	/* clock setup */
+
+	if (device_property_read_u32(dev, "stmmac-clk", &plat->clk_ptp_rate)) {
+		plat->clk_ptp_rate = 50000000;
+	}
+
+	plat->stmmac_clk = devm_clk_get(dev, STMMAC_RESOURCE_NAME);
+	if (IS_ERR(plat->stmmac_clk)) {
+		dev_err(dev, "stmmaceth clock is missed \n");
+		return ERR_PTR(-EINVAL);
+	}
+	if (!plat->clk_ptp_rate)
+		plat->clk_ptp_rate = clk_get_rate(plat->stmmac_clk);
+
+	plat->clk_ptp_ref = devm_clk_get(dev, "ptp_ref");
+	if (IS_ERR(plat->clk_ptp_ref)) {
+		plat->clk_ptp_ref = NULL;
+	} else {
+		plat->clk_ptp_rate = clk_get_rate(plat->clk_ptp_ref);
+	}
+
+	clk_prepare_enable(plat->stmmac_clk);
+
+	plat->stmmac_rst = devm_reset_control_get(dev, STMMAC_RESOURCE_NAME);
+	if (IS_ERR(plat->stmmac_rst))
+		plat->stmmac_rst = NULL;
+
+	return plat;
+}
+
+static void devm_stmmac_remove_config_acpi(void *data)
+{
+	struct plat_stmmacenet_data *plat = data;
+
+	clk_disable_unprepare(plat->stmmac_clk);
+	clk_disable_unprepare(plat->pclk);
+}
+
+struct plat_stmmacenet_data *
+devm_stmmac_probe_config_acpi(struct platform_device *pdev, u8 *mac)
+{
+	struct plat_stmmacenet_data *plat;
+	int ret;
+
+	plat = stmmac_probe_config_acpi(pdev, mac);
+	if (IS_ERR(plat))
+		return plat;
+
+	ret = devm_add_action_or_reset(&pdev->dev,
+				       devm_stmmac_remove_config_acpi, plat);
+	if (ret)
+		return ERR_PTR(ret);
+
+	return plat;
+}
+#else
+struct plat_stmmacenet_data *
+devm_stmmac_probe_config_acpi(struct platform_device *pdev, u8 *mac)
+{
+	return ERR_PTR(-EINVAL);
+}
+#endif /* CONFIG_ACPI */
+EXPORT_SYMBOL_GPL(devm_stmmac_probe_config_acpi);
+
+struct plat_stmmacenet_data *
+devm_stmmac_probe_config(struct platform_device *pdev, u8 *mac)
+{
+	if (pdev->dev.of_node)
+		return devm_stmmac_probe_config_dt(pdev, mac);
+	if (ACPI_HANDLE(&pdev->dev))
+		return devm_stmmac_probe_config_acpi(pdev, mac);
+	return ERR_PTR(-ENODEV);
+}
+EXPORT_SYMBOL_GPL(devm_stmmac_probe_config);
+
 int stmmac_get_platform_resources(struct platform_device *pdev,
 				  struct stmmac_resources *stmmac_res)
 {
+	char irq_name[IFNAMSIZ];
+	int irq, i;
+
 	memset(stmmac_res, 0, sizeof(*stmmac_res));
 
 	/* Get IRQ information early to have an ability to ask for deferred
@@ -747,6 +973,27 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 		if (stmmac_res->sfty_irq == -EPROBE_DEFER)
 			return -EPROBE_DEFER;
 		dev_info(&pdev->dev, "IRQ sfty not found\n");
+	}
+
+	/* Request optional MTL per-queue IRQs. Note in fact these are the
+	 * DMA per-channel IRQs, the driver just maps them one-on-one.
+	 */
+	for (i = 0; i < MTL_MAX_RX_QUEUES; i++) {
+		snprintf(irq_name, IFNAMSIZ, "dma_rx%d", i);
+		irq = platform_get_irq_byname_optional(pdev, irq_name);
+		if (irq < 0)
+			break;
+
+		stmmac_res->rx_irq[i] = irq;
+	}
+
+	for (i = 0; i < MTL_MAX_TX_QUEUES; i++) {
+		snprintf(irq_name, IFNAMSIZ, "dma_tx%d", i);
+		irq = platform_get_irq_byname_optional(pdev, irq_name);
+		if (irq < 0)
+			break;
+
+		stmmac_res->tx_irq[i] = irq;
 	}
 
 	stmmac_res->addr = devm_platform_ioremap_resource(pdev, 0);

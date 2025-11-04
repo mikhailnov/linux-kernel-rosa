@@ -1094,6 +1094,18 @@ config SUNPLUS_WATCHDOG
 	  To compile this driver as a module, choose M here: the
 	  module will be called sunplus_wdt.
 
+config BAIKAL_WATCHDOG
+	tristate "Baikal Electronics watchdog"
+	depends on ARCH_BAIKAL
+	select WATCHDOG_CORE
+	select BAIKAL_MBOX_SMS
+	help
+	  Say Y here if to include support for the Baikal Electronics
+	  watchdog timer.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called baikal_wdt.
+
 # X86 (i386 + ia64 + x86_64) Architecture
 
 config ACQUIRE_WDT

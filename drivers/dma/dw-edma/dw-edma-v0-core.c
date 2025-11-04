@@ -414,7 +414,9 @@ static void dw_edma_v0_core_start(struct dw_edma_chunk *chunk, bool first)
 		SET_RW_32(dw, chan->dir, int_mask, tmp);
 		/* Linked list error */
 		tmp = GET_RW_32(dw, chan->dir, linked_list_err_en);
-		tmp |= FIELD_PREP(EDMA_V0_LINKED_LIST_ERR_MASK, BIT(chan->id));
+		tmp |= FIELD_PREP(EDMA_V0_LL_LOCAL_ABORT_INT_MASK, BIT(chan->id));
+		if (!(dw->chip->flags & DW_EDMA_CHIP_LOCAL))
+			tmp |= FIELD_PREP(EDMA_V0_LL_REMOTE_ABORT_INT_MASK, BIT(chan->id));
 		SET_RW_32(dw, chan->dir, linked_list_err_en, tmp);
 		/* Channel control */
 		SET_CH_32(dw, chan->dir, chan->id, ch_control1,

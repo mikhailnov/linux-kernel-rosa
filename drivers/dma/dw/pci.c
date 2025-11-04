@@ -47,7 +47,11 @@ static int dw_pci_probe(struct pci_dev *pdev, const struct pci_device_id *pid)
 	chip->dev = &pdev->dev;
 	chip->id = pdev->devfn;
 	chip->regs = pcim_iomap_table(pdev)[0];
-	chip->irq = pdev->irq;
+	chip->irq_num = 1;
+	chip->irq = devm_kzalloc(&pdev->dev, sizeof(int), GFP_KERNEL);
+	if (!chip->irq)
+		return -ENOMEM;
+	chip->irq[0] = pdev->irq;
 	chip->pdata = data->pdata;
 
 	data->chip = chip;

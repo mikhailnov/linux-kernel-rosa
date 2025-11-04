@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config BAIKAL_SCMI_BASE_EXT
+	tristate "Baikal SCMI Base Extension protocol driver"
+	depends on ARCH_BAIKAL || COMPILE_TEST
+	depends on ARM_SCMI_PROTOCOL
+	select ARM_SCMI_TRANSPORT_MAILBOX
+	select BAIKAL_MBOX_SCMI
+	help
+	  This enables Baikal specific SCMI Base Extension protocol to
+	  exchange data with XCP-FW.
+
+config BAIKAL_SCMI_BASE_EXT_ACPI
+	tristate "Baikal SCMI Base Extension protocol ACPI driver"
+	depends on ARCH_BAIKAL || COMPILE_TEST
+	depends on ACPI
+	select PCC
+	help
+	  This enables Baikal specific SCMI Base Extension protocol based
+	  on PCC transport to exchange data with XCP-FW.

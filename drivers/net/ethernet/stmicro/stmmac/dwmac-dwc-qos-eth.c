@@ -46,8 +46,8 @@ static int dwc_eth_dwmac_config_dt(struct platform_device *pdev,
 	u32 a_index = 0;
 
 	if (!plat_dat->axi) {
-		plat_dat->axi = kzalloc(sizeof(struct stmmac_axi), GFP_KERNEL);
-
+		plat_dat->axi = devm_kzalloc(dev, sizeof(*plat_dat->axi),
+					     GFP_KERNEL);
 		if (!plat_dat->axi)
 			return -ENOMEM;
 	}
@@ -123,39 +123,46 @@ static int dwc_qos_probe(struct platform_device *pdev,
 			 struct plat_stmmacenet_data *plat_dat,
 			 struct stmmac_resources *stmmac_res)
 {
+	struct clk *clk;
 	int err;
 
-	plat_dat->stmmac_clk = devm_clk_get(&pdev->dev, "apb_pclk");
-	if (IS_ERR(plat_dat->stmmac_clk)) {
+	clk = devm_clk_get(&pdev->dev, "apb_pclk");
+	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "apb_pclk clock not found.\n");
-		return PTR_ERR(plat_dat->stmmac_clk);
+		return PTR_ERR(clk);
 	}
 
-	err = clk_prepare_enable(plat_dat->stmmac_clk);
+	err = clk_prepare_enable(clk);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to enable apb_pclk clock: %d\n",
 			err);
 		return err;
 	}
 
-	plat_dat->pclk = devm_clk_get(&pdev->dev, "phy_ref_clk");
-	if (IS_ERR(plat_dat->pclk)) {
+	plat_dat->stmmac_clk = clk;
+
+	clk = devm_clk_get(&pdev->dev, "phy_ref_clk");
+	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "phy_ref_clk clock not found.\n");
-		err = PTR_ERR(plat_dat->pclk);
+		err = PTR_ERR(clk);
 		goto disable;
 	}
 
-	err = clk_prepare_enable(plat_dat->pclk);
+	err = clk_prepare_enable(clk);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to enable phy_ref clock: %d\n",
 			err);
 		goto disable;
 	}
 
+	plat_dat->pclk = clk;
+
 	return 0;
 
 disable:
 	clk_disable_unprepare(plat_dat->stmmac_clk);
+	plat_dat->stmmac_clk = NULL;
+
 	return err;
 }
 
@@ -164,8 +171,15 @@ static void dwc_qos_remove(struct platform_device *pdev)
 	struct net_device *ndev = platform_get_drvdata(pdev);
 	struct stmmac_priv *priv = netdev_priv(ndev);
 
+	/* Cleanup the pointers to the clock handlers hidden in the platform
+	 * data so the stmmac_remove_config_dt() method wouldn't have disabled
+	 * the clocks too.
+	 */
 	clk_disable_unprepare(priv->plat->pclk);
+	priv->plat->pclk = NULL;
+
 	clk_disable_unprepare(priv->plat->stmmac_clk);
+	priv->plat->stmmac_clk = NULL;
 }
 
 #define SDMEMCOMPPADCTRL 0x8800
@@ -299,11 +313,11 @@ static int tegra_eqos_probe(struct platform_device *pdev,
 		goto disable_master;
 	}
 
-	data->stmmac_clk = eqos->clk_slave;
-
 	err = clk_prepare_enable(eqos->clk_slave);
 	if (err < 0)
 		goto disable_master;
+
+	data->stmmac_clk = eqos->clk_slave;
 
 	eqos->clk_rx = devm_clk_get(&pdev->dev, "rx");
 	if (IS_ERR(eqos->clk_rx)) {
@@ -376,6 +390,7 @@ disable_rx:
 	clk_disable_unprepare(eqos->clk_rx);
 disable_slave:
 	clk_disable_unprepare(eqos->clk_slave);
+	data->stmmac_clk = NULL;
 disable_master:
 	clk_disable_unprepare(eqos->clk_master);
 error:
@@ -384,7 +399,8 @@ error:
 
 static void tegra_eqos_remove(struct platform_device *pdev)
 {
-	struct tegra_eqos *eqos = get_stmmac_bsp_priv(&pdev->dev);
+	struct stmmac_priv *priv = netdev_priv(platform_get_drvdata(pdev));
+	struct tegra_eqos *eqos = priv->plat->bsp_priv;
 
 	reset_control_assert(eqos->rst);
 	gpiod_set_value(eqos->reset, 1);
@@ -392,6 +408,12 @@ static void tegra_eqos_remove(struct platform_device *pdev)
 	clk_disable_unprepare(eqos->clk_rx);
 	clk_disable_unprepare(eqos->clk_slave);
 	clk_disable_unprepare(eqos->clk_master);
+
+	/* Cleanup the pointers to the clock handlers hidden in the platform
+	 * data so the stmmac_remove_config_dt() method wouldn't have disabled
+	 * the clocks too.
+	 */
+	priv->plat->stmmac_clk = NULL;
 }
 
 struct dwc_eth_dwmac_data {

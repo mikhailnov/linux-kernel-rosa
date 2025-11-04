@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2019, The Linaro Limited. All rights reserved.
  */
+#include <linux/acpi.h>
 #include <linux/coresight.h>
 #include <linux/device.h>
 #include <linux/err.h>
@@ -66,6 +67,59 @@ static int of_cti_get_cpu_at_node(const struct device_node *node)
 
 #endif
 
+#ifdef CONFIG_ACPI
+
+#include <acpi/actypes.h>
+#include <acpi/processor.h>
+
+/*
+ * acpi_handle_to_logical_cpuid - Map a given acpi_handle to the
+ * logical CPU id of the corresponding CPU device.
+ *
+ * Returns the logical CPU id when found. Otherwise returns >= nr_cpus_id.
+ */
+static int
+acpi_handle_to_logical_cpuid(acpi_handle handle)
+{
+	int i;
+	struct acpi_processor *pr;
+
+	for_each_possible_cpu(i) {
+		pr = per_cpu(processors, i);
+		if (pr && pr->handle == handle)
+			break;
+	}
+
+	return i;
+}
+
+static int acpi_cti_get_cpu_at_node(struct fwnode_handle *fwnode)
+{
+	int cpu;
+	acpi_handle cpu_handle;
+	acpi_status status;
+	struct acpi_device *adev = to_acpi_device_node(fwnode);
+
+	if (!adev)
+		return -1;
+	status = acpi_get_parent(adev->handle, &cpu_handle);
+	if (ACPI_FAILURE(status))
+		return -1;
+
+	cpu = acpi_handle_to_logical_cpuid(cpu_handle);
+	if (cpu >= nr_cpu_ids)
+		return -1;
+	return cpu;
+}
+
+#else
+static int acpi_cti_get_cpu_at_node(struct fwnode_handle *fwnode)
+{
+	return -1;
+}
+
+#endif
+
 /*
  * CTI can be bound to a CPU, or a system device.
  * CPU can be declared at the device top level or in a connections node
@@ -75,6 +129,8 @@ static int cti_plat_get_cpu_at_node(struct fwnode_handle *fwnode)
 {
 	if (is_of_node(fwnode))
 		return of_cti_get_cpu_at_node(to_of_node(fwnode));
+	else if (is_acpi_device_node(fwnode))
+		return acpi_cti_get_cpu_at_node(fwnode);
 	return -1;
 }
 
@@ -82,6 +138,8 @@ const char *cti_plat_get_node_name(struct fwnode_handle *fwnode)
 {
 	if (is_of_node(fwnode))
 		return of_node_full_name(to_of_node(fwnode));
+	else if (is_acpi_device_node(fwnode))
+		return fwnode_get_name(fwnode);
 	return "unknown";
 }
 
@@ -421,7 +479,8 @@ static int cti_plat_create_impdef_connections(struct device *dev,
 		return -EINVAL;
 
 	device_for_each_child_node_scoped(dev, child) {
-		if (cti_plat_node_name_eq(child, CTI_DT_CONNS))
+		if (cti_plat_node_name_eq(child, CTI_DT_CONNS) ||
+		    is_acpi_device_node(dev_fwnode(dev)))
 			rc = cti_plat_create_connection(dev, drvdata, child);
 		if (rc != 0)
 			break;
@@ -440,7 +499,8 @@ static int cti_plat_get_hw_data(struct device *dev, struct cti_drvdata *drvdata)
 	device_property_read_u32(dev, CTI_DT_CTM_ID, &cti_dev->ctm_id);
 
 	/* check for a v8 architectural CTI device */
-	if (cti_plat_check_v8_arch_compatible(dev))
+	if (cti_plat_check_v8_arch_compatible(dev) ||
+	    device_property_present(dev, CTI_DT_V8ARCH_COMPAT))
 		rc = cti_plat_create_v8_connections(dev, drvdata);
 	else
 		rc = cti_plat_create_impdef_connections(dev, drvdata);

@@ -23,6 +23,7 @@
 #define	RDES0_FRAME_TYPE	BIT(5)
 #define	RDES0_COLLISION		BIT(6)
 #define	RDES0_IPC_CSUM_ERROR	BIT(7)
+#define	RDES0_GIANT_FRAME_ERROR	RDES0_IPC_CSUM_ERROR
 #define	RDES0_LAST_DESCRIPTOR	BIT(8)
 #define	RDES0_FIRST_DESCRIPTOR	BIT(9)
 #define	RDES0_VLAN_TAG		BIT(10)
@@ -106,6 +107,8 @@
 #define	ETDES0_ERROR_SUMMARY		BIT(15)
 #define	ETDES0_IP_HEADER_ERROR		BIT(16)
 #define	ETDES0_TIME_STAMP_STATUS	BIT(17)
+#define	ETDES0_VLIC_MASK		GENMASK(19, 18)
+#define	ETDES0_VLIC_SHIFT		18
 #define	ETDES0_SECOND_ADDRESS_CHAINED	BIT(20)
 #define	ETDES0_END_RING			BIT(21)
 #define	ETDES0_CHECKSUM_INSERTION_MASK	GENMASK(23, 22)
@@ -170,6 +173,8 @@ struct dma_extended_desc {
 	__le32 des6;	/* Tx/Rx Timestamp Low */
 	__le32 des7;	/* Tx/Rx Timestamp High */
 };
+#define to_dma_extended_desc(_basic) \
+	container_of(_basic, struct dma_extended_desc, basic)
 
 /* Enhanced descriptor for TBS */
 struct dma_edesc {

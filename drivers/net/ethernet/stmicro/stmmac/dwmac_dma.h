@@ -50,6 +50,14 @@ static inline u32 dma_chan_base_addr(u32 base, u32 chan)
 /* SW Reset */
 #define DMA_BUS_MODE_SFT_RESET	0x00000001	/* Software Reset */
 
+/* DMA Missed Frame Counter */
+#define DMA_MISSED_FRAME_OVFCNTOVF		BIT(28)
+#define DMA_MISSED_FRAME_OVFFRMCNT 		GENMASK(27, 17)
+#define DMA_MISSED_FRAME_OVFFRMCNT_SHIFT	17
+#define DMA_MISSED_FRAME_MISCNTOVF		BIT(16)
+#define DMA_MISSED_FRAME_MISFRMCNT		GENMASK(15, 0)
+#define DMA_MISSED_FRAME_MISFRMCNT_SHIFT	0
+
 /* Rx watchdog register */
 #define DMA_RX_WATCHDOG		0x00001024
 
@@ -117,11 +125,12 @@ static inline u32 dma_chan_base_addr(u32 base, u32 chan)
 #define DMA_INTR_ENA_TSE 0x00000002	/* Transmit Stopped */
 
 #define DMA_INTR_ABNORMAL	(DMA_INTR_ENA_AIE | DMA_INTR_ENA_FBE | \
-				DMA_INTR_ENA_UNE)
+				 DMA_INTR_ENA_RUE | DMA_INTR_ENA_UNE | \
+				 DMA_INTR_ENA_OVE | DMA_INTR_ENA_TJE)
 
 /* DMA default interrupt mask */
 #define DMA_INTR_DEFAULT_MASK	(DMA_INTR_NORMAL | DMA_INTR_ABNORMAL)
-#define DMA_INTR_DEFAULT_RX	(DMA_INTR_ENA_RIE)
+#define DMA_INTR_DEFAULT_RX	(DMA_INTR_ENA_RUE | DMA_INTR_ENA_RIE)
 #define DMA_INTR_DEFAULT_TX	(DMA_INTR_ENA_TIE)
 
 /* DMA Status register defines */
@@ -190,8 +199,12 @@ void dwmac_dma_start_rx(struct stmmac_priv *priv, void __iomem *ioaddr,
 			u32 chan);
 void dwmac_dma_stop_rx(struct stmmac_priv *priv, void __iomem *ioaddr,
 		       u32 chan);
+bool dwmac_dma_suspended(struct stmmac_priv *priv, void __iomem *ioaddr,
+			 u32 chan, u32 dir);
 int dwmac_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 			struct stmmac_extra_stats *x, u32 chan, u32 dir);
+void dwmac_dma_diagnostic_fr(struct stmmac_priv *priv, void __iomem *ioaddr,
+			     struct stmmac_extra_stats *x, u32 chan);
 int dwmac_dma_reset(void __iomem *ioaddr);
 
 #endif /* __DWMAC_DMA_H__ */

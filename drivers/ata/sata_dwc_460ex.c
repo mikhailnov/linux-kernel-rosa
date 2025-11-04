@@ -236,8 +236,12 @@ static int sata_dwc_dma_init_old(struct platform_device *pdev,
 	hsdev->dma->id = pdev->id;
 
 	/* Get SATA DMA interrupt number */
-	hsdev->dma->irq = irq_of_parse_and_map(np, 1);
-	if (!hsdev->dma->irq) {
+	hsdev->dma->irq_num = 1;
+	hsdev->dma->irq = devm_kzalloc(dev, sizeof(int), GFP_KERNEL);
+	if (!hsdev->dma->irq)
+		return -ENOMEM;
+	hsdev->dma->irq[0] = irq_of_parse_and_map(np, 1);
+	if (!hsdev->dma->irq[0]) {
 		dev_err(dev, "no SATA DMA irq\n");
 		return -ENODEV;
 	}

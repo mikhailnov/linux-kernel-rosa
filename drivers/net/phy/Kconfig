@@ -258,6 +258,20 @@ config MARVELL_88X2222_PHY
 	  Support for the Marvell 88X2222 Dual-port Multi-speed Ethernet
 	  Transceiver.
 
+config MARVELL_88X2222_GPIO
+	bool "Marvell 88X2222 SFP+ GPIOs support"
+	depends on MARVELL_88X2222_PHY
+	depends on GPIOLIB && GPIOLIB_IRQCHIP
+	help
+	  Support for the Marvell 88X2222 PHY SFP+/GPIO signals.
+
+config MARVELL_88X2222_I2C
+	bool "Marvell 88X2222 SFP+ I2C support"
+	depends on MARVELL_88X2222_PHY
+	depends on I2C
+	help
+	  Support for the Marvell 88X2222 PHY SFP+/I2C signals.
+
 config MAXLINEAR_GPHY
 	tristate "Maxlinear Ethernet PHYs"
 	select POLYNOMIAL if HWMON

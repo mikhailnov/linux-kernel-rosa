@@ -94,6 +94,7 @@ properties:
       - trgmii
       - 1000base-x
       - 2500base-x
+      - 10gbase-x
       - 5gbase-r
       - rxaui
       - xaui

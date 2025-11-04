@@ -455,6 +455,16 @@ int stmmac_mdio_reset(struct mii_bus *bus)
 	struct net_device *ndev = bus->priv;
 	struct stmmac_priv *priv = netdev_priv(ndev);
 	unsigned int mii_address = priv->hw->mii.addr;
+	int ret;
+
+	/* TODO Temporary solution. DELME when you are done with implementing
+	 * the generic DW MAC GPIOs support.
+	 */
+	if (priv->plat->bus_reset) {
+		ret = priv->plat->bus_reset(priv->plat->bsp_priv);
+		if (ret)
+			return ret;
+	}
 
 #ifdef CONFIG_OF
 	if (priv->device->of_node) {
@@ -500,23 +510,22 @@ int stmmac_pcs_setup(struct net_device *ndev)
 	struct fwnode_handle *devnode, *pcsnode;
 	struct dw_xpcs *xpcs = NULL;
 	struct stmmac_priv *priv;
-	int addr, mode, ret;
+	int addr, ret;
 
 	priv = netdev_priv(ndev);
-	mode = priv->plat->phy_interface;
 	devnode = priv->plat->port_node;
 
 	if (priv->plat->pcs_init) {
 		ret = priv->plat->pcs_init(priv);
 	} else if (fwnode_property_present(devnode, "pcs-handle")) {
 		pcsnode = fwnode_find_reference(devnode, "pcs-handle", 0);
-		xpcs = xpcs_create_fwnode(pcsnode, mode);
+		xpcs = xpcs_create_fwnode(pcsnode);
 		fwnode_handle_put(pcsnode);
 		ret = PTR_ERR_OR_ZERO(xpcs);
 	} else if (priv->plat->mdio_bus_data &&
 		   priv->plat->mdio_bus_data->pcs_mask) {
 		addr = ffs(priv->plat->mdio_bus_data->pcs_mask) - 1;
-		xpcs = xpcs_create_mdiodev(priv->mii, addr, mode);
+		xpcs = xpcs_create_mdiodev(priv->mii, addr);
 		ret = PTR_ERR_OR_ZERO(xpcs);
 	} else {
 		return 0;
@@ -564,7 +573,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	if (!mdio_bus_data)
 		return 0;
 
-	new_bus = mdiobus_alloc();
+	priv->mii = new_bus = mdiobus_alloc();
 	if (!new_bus)
 		return -ENOMEM;
 
@@ -639,7 +648,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	}
 
 	if (priv->plat->phy_node || mdio_node)
-		goto bus_register_done;
+		return 0;
 
 	found = 0;
 	for (addr = 0; addr < max_addr; addr++) {
@@ -677,8 +686,6 @@ int stmmac_mdio_register(struct net_device *ndev)
 	}
 
 bus_register_done:
-	priv->mii = new_bus;
-
 	return 0;
 
 no_phy_found:

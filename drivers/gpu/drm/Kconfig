@@ -361,6 +361,8 @@ source "drivers/gpu/drm/i2c/Kconfig"
 
 source "drivers/gpu/drm/arm/Kconfig"
 
+source "drivers/gpu/drm/baikal/Kconfig"
+
 source "drivers/gpu/drm/radeon/Kconfig"
 
 source "drivers/gpu/drm/amd/amdgpu/Kconfig"

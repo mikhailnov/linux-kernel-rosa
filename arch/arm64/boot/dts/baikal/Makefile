@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0
+dtb-$(CONFIG_ARCH_BAIKAL) += bm1000-dbm10.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bm1000-dbm20.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bm1000-mbm10.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bm1000-mbm20.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bm1000-qemu-m.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-dbs.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-dbs-ov.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-qemu-s.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-rds-1s.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-rds-2s.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-rds-2s-nosmp-soc0.dtb
+dtb-$(CONFIG_ARCH_BAIKAL) += bs1000-rds-2s-nosmp-soc1.dtb

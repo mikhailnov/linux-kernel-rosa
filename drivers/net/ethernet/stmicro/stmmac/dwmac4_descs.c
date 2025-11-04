@@ -11,11 +11,11 @@
 #include <linux/stmmac.h>
 #include "common.h"
 #include "dwmac4.h"
+#include "dwmac4_dma.h"
 #include "dwmac4_descs.h"
 
 static int dwmac4_wrback_get_tx_status(struct stmmac_extra_stats *x,
-				       struct dma_desc *p,
-				       void __iomem *ioaddr)
+				       struct dma_desc *p)
 {
 	unsigned int tdes3;
 	int ret = tx_done;
@@ -52,10 +52,8 @@ static int dwmac4_wrback_get_tx_status(struct stmmac_extra_stats *x,
 		if (unlikely(tdes3 & TDES3_EXCESSIVE_DEFERRAL))
 			x->tx_deferred++;
 
-		if (unlikely(tdes3 & TDES3_UNDERFLOW_ERROR)) {
+		if (unlikely(tdes3 & TDES3_UNDERFLOW_ERROR))
 			x->tx_underflow++;
-			ret |= tx_err_bump_tc;
-		}
 
 		if (unlikely(tdes3 & TDES3_IP_HDR_ERROR))
 			x->tx_ip_header_error++;
@@ -88,36 +86,74 @@ static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 		return rx_not_ls;
 
 	if (unlikely(rdes3 & RDES3_ERROR_SUMMARY)) {
-		if (unlikely(rdes3 & RDES3_GIANT_PACKET))
+		if (unlikely(rdes3 & RDES3_GIANT_PACKET)) {
 			x->rx_length++;
-		if (unlikely(rdes3 & RDES3_OVERFLOW_ERROR))
+			ret |= len_err;
+		}
+
+		if (unlikely(rdes3 & RDES3_OVERFLOW_ERROR)) {
 			x->rx_gmac_overflow++;
+			ret |= cutoff_err;
+		}
 
-		if (unlikely(rdes3 & RDES3_RECEIVE_WATCHDOG))
+		if (unlikely(rdes3 & RDES3_RECEIVE_WATCHDOG)) {
 			x->rx_watchdog++;
+			ret |= cutoff_err;
+		}
 
-		if (unlikely(rdes3 & RDES3_RECEIVE_ERROR))
+		if (unlikely(rdes3 & RDES3_RECEIVE_ERROR)) {
 			x->rx_mii++;
+			ret |= proto_err;
+		}
 
-		if (unlikely(rdes3 & RDES3_CRC_ERROR))
+		if (unlikely(rdes3 & RDES3_CRC_ERROR)) {
 			x->rx_crc_errors++;
+			ret |= csum_err;
+		}
 
-		if (unlikely(rdes3 & RDES3_DRIBBLE_ERROR))
+		if (unlikely(rdes3 & RDES3_DRIBBLE_ERROR)) {
 			x->dribbling_bit++;
+			ret |= proto_err;
+		}
+	} else {
+		int lt = (rdes3 & RDES3_PACKET_LEN_TYPE_MASK) >> RDES3_PACKET_LEN_TYPE_SHIFT;
 
-		ret = discard_frame;
+		switch (lt) {
+		case RDES3_PACKET_LENGTH:
+			ret |= llc_snap;
+			break;
+		case RDES3_PACKET_ARP:
+			x->arp_pkt_ofld++;
+			if (likely(!(rdes2 & RDES2_RPNG)))
+				ret |= arp_done;
+			break;
+		case RDES3_PACKET_VLAN:
+		case RDES3_PACKET_DVLAN:
+			x->rx_vlan++;
+			break;
+		}
 	}
 
 	message_type = (rdes1 & ERDES4_MSG_TYPE_MASK) >> 8;
 
-	if (rdes1 & RDES1_IP_HDR_ERROR)
+	if (rdes1 & RDES1_IP_HDR_ERROR) {
 		x->ip_hdr_err++;
-	if (rdes1 & RDES1_IP_CSUM_BYPASSED)
+		ret |= csum_err;
+	}
+	if (rdes1 & RDES1_IP_CSUM_ERROR) {
+		x->ip_payload_err++;
+		ret |= csum_err;
+	}
+	if (rdes1 & RDES1_IP_CSUM_BYPASSED) {
 		x->ip_csum_bypassed++;
+		ret |= csum_none;
+	}
 	if (rdes1 & RDES1_IPV4_HEADER)
 		x->ipv4_pkt_rcvd++;
-	if (rdes1 & RDES1_IPV6_HEADER)
+	else if (rdes1 & RDES1_IPV6_HEADER)
 		x->ipv6_pkt_rcvd++;
+	else /* Not an IP packet or COE is disabled */
+		ret |= csum_none;
 
 	if (message_type == RDES_EXT_NO_PTP)
 		x->no_ptp_rx_msg_type_ext++;
@@ -149,14 +185,10 @@ static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 	if (rdes1 & RDES1_TIMESTAMP_DROPPED)
 		x->timestamp_dropped++;
 
-	if (unlikely(rdes2 & RDES2_SA_FILTER_FAIL)) {
+	if (unlikely(rdes2 & RDES2_SA_FILTER_FAIL))
 		x->sa_rx_filter_fail++;
-		ret = discard_frame;
-	}
-	if (unlikely(rdes2 & RDES2_DA_FILTER_FAIL)) {
+	if (unlikely(rdes2 & RDES2_DA_FILTER_FAIL))
 		x->da_rx_filter_fail++;
-		ret = discard_frame;
-	}
 
 	if (rdes2 & RDES2_L3_FILTER_MATCH)
 		x->l3_filter_match++;
@@ -167,11 +199,6 @@ static int dwmac4_wrback_get_rx_status(struct stmmac_extra_stats *x,
 		x->l3_l4_filter_no_match++;
 
 	return ret;
-}
-
-static int dwmac4_rd_get_tx_len(struct dma_desc *p)
-{
-	return (le32_to_cpu(p->des2) & TDES2_BUFFER1_SIZE_MASK);
 }
 
 static int dwmac4_get_tx_owner(struct dma_desc *p)
@@ -200,6 +227,12 @@ static int dwmac4_get_tx_ls(struct dma_desc *p)
 		>> TDES3_LAST_DESCRIPTOR_SHIFT;
 }
 
+static u16 dwmac4_wrback_get_rx_vlan_tpid(struct dma_desc *p)
+{
+	/* Alas at least up to v5.20 there is no TPID in wrback desc */
+	return ETH_P_8021Q;
+}
+
 static u16 dwmac4_wrback_get_rx_vlan_tci(struct dma_desc *p)
 {
 	return (le32_to_cpu(p->des0) & RDES0_VLAN_TAG_MASK);
@@ -211,7 +244,7 @@ static bool dwmac4_wrback_get_rx_vlan_valid(struct dma_desc *p)
 		(le32_to_cpu(p->des3) & RDES3_RDES0_VALID));
 }
 
-static int dwmac4_wrback_get_rx_frame_len(struct dma_desc *p, int rx_coe)
+static int dwmac4_wrback_get_rx_frame_len(struct dma_desc *p)
 {
 	return (le32_to_cpu(p->des3) & RDES3_PACKET_SIZE_MASK);
 }
@@ -306,7 +339,12 @@ exit:
 static void dwmac4_rd_init_rx_desc(struct dma_desc *p, int disable_rx_ic,
 				   int mode, int end, int bfsize)
 {
-	dwmac4_set_rx_owner(p, disable_rx_ic);
+	u32 flags = (RDES3_OWN | RDES3_BUFFER1_VALID_ADDR);
+
+	if (!disable_rx_ic)
+		flags |= RDES3_INT_ON_COMPLETION_EN;
+
+	p->des3 |= cpu_to_le32(flags);
 }
 
 static void dwmac4_rd_init_tx_desc(struct dma_desc *p, int mode, int end)
@@ -315,6 +353,40 @@ static void dwmac4_rd_init_tx_desc(struct dma_desc *p, int mode, int end)
 	p->des1 = 0;
 	p->des2 = 0;
 	p->des3 = 0;
+}
+
+static unsigned int dwmac4_rd_get_rx_len(int mode)
+{
+	return STMMAC_RX_BUF_ALIGN(DMA_RBSZ_MASK >> DMA_RBSZ_SHIFT);
+}
+
+static void dwmac4_release_rx_desc(struct dma_desc *p, int disable_rx_ic,
+				   int is_fs, bool rx_own)
+{
+	unsigned int rdes3 = le32_to_cpu(p->des3);
+
+	rdes3 |= RDES3_BUFFER1_VALID_ADDR;
+
+	if (disable_rx_ic)
+		rdes3 &= cpu_to_le32(~RDES3_INT_ON_COMPLETION_EN);
+	else
+		rdes3 |= cpu_to_le32(RDES3_INT_ON_COMPLETION_EN);
+
+	if (rx_own)
+		rdes3 |= cpu_to_le32(RDES3_OWN);
+
+	/* Before releasing the initial descriptor make sure that all
+	 * the previous writes are visible to the controller.
+	 */
+	if (is_fs && rx_own)
+		dma_wmb();
+
+	p->des3 = cpu_to_le32(rdes3);
+}
+
+static unsigned int dwmac4_rd_get_tx_len(int mode)
+{
+	return TDES2_BUFFER1_SIZE_MASK;
 }
 
 static void dwmac4_rd_prepare_tx_desc(struct dma_desc *p, int is_fs, int len,
@@ -398,7 +470,8 @@ static void dwmac4_rd_prepare_tso_tx_desc(struct dma_desc *p, int is_fs,
 	p->des3 = cpu_to_le32(tdes3);
 }
 
-static void dwmac4_release_tx_desc(struct dma_desc *p, int mode)
+static void dwmac4_release_tx_desc(struct dma_desc *p, int mode,
+				   dma_addr_t np, bool hwts_tx)
 {
 	p->des0 = 0;
 	p->des1 = 0;
@@ -490,15 +563,6 @@ static void dwmac4_set_sarc(struct dma_desc *p, u32 sarc_type)
 	p->des3 |= cpu_to_le32(sarc_type & TDES3_SA_INSERT_CTRL_MASK);
 }
 
-static int set_16kib_bfsize(int mtu)
-{
-	int ret = 0;
-
-	if (unlikely(mtu >= BUF_SIZE_8KiB))
-		ret = BUF_SIZE_16KiB;
-	return ret;
-}
-
 static void dwmac4_set_vlan_tag(struct dma_desc *p, u16 tag, u16 inner_tag,
 				u32 inner_type)
 {
@@ -559,11 +623,13 @@ static void dwmac4_set_tbs(struct dma_edesc *p, u32 sec, u32 nsec)
 const struct stmmac_desc_ops dwmac4_desc_ops = {
 	.tx_status = dwmac4_wrback_get_tx_status,
 	.rx_status = dwmac4_wrback_get_rx_status,
+	.get_rx_len = dwmac4_rd_get_rx_len,
 	.get_tx_len = dwmac4_rd_get_tx_len,
 	.get_tx_owner = dwmac4_get_tx_owner,
 	.set_tx_owner = dwmac4_set_tx_owner,
 	.set_rx_owner = dwmac4_set_rx_owner,
 	.get_tx_ls = dwmac4_get_tx_ls,
+	.get_rx_vlan_tpid = dwmac4_wrback_get_rx_vlan_tpid,
 	.get_rx_vlan_tci = dwmac4_wrback_get_rx_vlan_tci,
 	.get_rx_vlan_valid = dwmac4_wrback_get_rx_vlan_valid,
 	.get_rx_frame_len = dwmac4_wrback_get_rx_frame_len,
@@ -572,6 +638,7 @@ const struct stmmac_desc_ops dwmac4_desc_ops = {
 	.get_rx_timestamp_status = dwmac4_wrback_get_rx_timestamp_status,
 	.get_timestamp = dwmac4_get_timestamp,
 	.set_tx_ic = dwmac4_rd_set_tx_ic,
+	.release_rx_desc = dwmac4_release_rx_desc,
 	.prepare_tx_desc = dwmac4_rd_prepare_tx_desc,
 	.prepare_tso_tx_desc = dwmac4_rd_prepare_tso_tx_desc,
 	.release_tx_desc = dwmac4_release_tx_desc,
@@ -587,8 +654,4 @@ const struct stmmac_desc_ops dwmac4_desc_ops = {
 	.get_rx_header_len = dwmac4_get_rx_header_len,
 	.set_sec_addr = dwmac4_set_sec_addr,
 	.set_tbs = dwmac4_set_tbs,
-};
-
-const struct stmmac_mode_ops dwmac4_ring_mode_ops = {
-	.set_16kib_bfsize = set_16kib_bfsize,
 };

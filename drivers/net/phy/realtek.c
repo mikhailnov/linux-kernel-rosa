@@ -865,6 +865,42 @@ static int rtl822xb_get_rate_matching(struct phy_device *phydev,
 	return RATE_MATCH_NONE;
 }
 
+static int rtl8211e_write_mmd(struct phy_device *phydev, int devnum, u16 regnum,
+			      u16 val)
+{
+	int ret;
+
+	/* Write to the MMD registers by using the standard control/data pair.
+	 * The only difference is that we need to perform a dummy read after
+	 * the PC1R.CLKSTOP_EN bit is set. It's required to workaround an issue
+	 * of a partial core freeze so LED2 stops blinking in EEE mode, PHY
+	 * stops detecting the link change and raising IRQs until any read from
+	 * its registers performed. That happens only if and right after the PHY
+	 * is enabled to stop RXC in LPI mode.
+	 */
+	ret = __phy_write(phydev, MII_MMD_CTRL, devnum);
+	if (ret)
+		return ret;
+
+	ret = __phy_write(phydev, MII_MMD_DATA, regnum);
+	if (ret)
+		return ret;
+
+	ret = __phy_write(phydev, MII_MMD_CTRL, devnum | MII_MMD_CTRL_NOINCR);
+	if (ret)
+		return ret;
+
+	ret = __phy_write(phydev, MII_MMD_DATA, val);
+	if (ret)
+		return ret;
+
+	if (devnum == MDIO_MMD_PCS && regnum == MDIO_CTRL1 &&
+	    val & MDIO_PCS_CTRL1_CLKSTOP_EN)
+		ret =  __phy_read(phydev, MII_MMD_DATA);
+
+	return ret < 0 ? ret : 0;
+}
+
 static int rtl822x_get_features(struct phy_device *phydev)
 {
 	int val;
@@ -1333,6 +1369,7 @@ static struct phy_driver realtek_drvs[] = {
 		.resume		= genphy_resume,
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
+		.write_mmd	= rtl8211e_write_mmd,
 	}, {
 		PHY_ID_MATCH_EXACT(0x001cc916),
 		.name		= "RTL8211F Gigabit Ethernet",

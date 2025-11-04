@@ -29,7 +29,9 @@
 
 #define DMA_INTR_ABNORMAL_LOONGSON	(DMA_INTR_ENA_AIE_TX_LOONGSON | \
 					 DMA_INTR_ENA_AIE_RX_LOONGSON | \
-					 DMA_INTR_ENA_FBE | DMA_INTR_ENA_UNE)
+					 DMA_INTR_ENA_FBE | DMA_INTR_ENA_RUE | \
+					 DMA_INTR_ENA_UNE | DMA_INTR_ENA_OVE | \
+					 DMA_INTR_ENA_TJE)
 
 #define DMA_INTR_DEFAULT_MASK_LOONGSON	(DMA_INTR_NORMAL_LOONGSON | \
 					 DMA_INTR_ABNORMAL_LOONGSON)
@@ -275,28 +277,37 @@ static int loongson_dwmac_dma_interrupt(struct stmmac_priv *priv,
 	/* ABNORMAL interrupts */
 	if (unlikely(abnor_intr_status)) {
 		if (unlikely(intr_status & DMA_STATUS_UNF)) {
-			ret = tx_hard_error_bump_tc;
 			x->tx_undeflow_irq++;
+			ret = tx_unf_error;
 		}
-		if (unlikely(intr_status & DMA_STATUS_TJT))
+
+		if (unlikely(intr_status & DMA_STATUS_TJT)) {
 			x->tx_jabber_irq++;
-		if (unlikely(intr_status & DMA_STATUS_OVF))
+			ret = tx_soft_stop;
+		}
+
+		if (unlikely(intr_status & DMA_STATUS_OVF)) {
 			x->rx_overflow_irq++;
-		if (unlikely(intr_status & DMA_STATUS_RU))
+			ret = rx_ovf_error;
+		}
+
+		if (unlikely(intr_status & DMA_STATUS_RU)) {
 			x->rx_buf_unav_irq++;
+			ret = handle_rx;
+		}
+
 		if (unlikely(intr_status & DMA_STATUS_RPS))
 			x->rx_process_stopped_irq++;
 		if (unlikely(intr_status & DMA_STATUS_RWT))
 			x->rx_watchdog_irq++;
 		if (unlikely(intr_status & DMA_STATUS_ETI))
 			x->tx_early_irq++;
-		if (unlikely(intr_status & DMA_STATUS_TPS)) {
+		if (unlikely(intr_status & DMA_STATUS_TPS))
 			x->tx_process_stopped_irq++;
-			ret = tx_hard_error;
-		}
+
 		if (unlikely(fb_intr_status)) {
 			x->fatal_bus_error_irq++;
-			ret = tx_hard_error;
+			ret = io_fatal_error;
 		}
 	}
 	/* TX/RX NORMAL interrupts */
@@ -463,21 +474,21 @@ static int loongson_dwmac_dt_config(struct pci_dev *pdev,
 		plat->bus_id = ret;
 
 	res->irq = of_irq_get_byname(np, "macirq");
-	if (res->irq < 0) {
+	if (res->irq <= 0) {
 		dev_err(&pdev->dev, "IRQ macirq not found\n");
 		ret = -ENODEV;
 		goto err_put_node;
 	}
 
 	res->wol_irq = of_irq_get_byname(np, "eth_wake_irq");
-	if (res->wol_irq < 0) {
+	if (res->wol_irq <= 0) {
 		dev_info(&pdev->dev,
 			 "IRQ eth_wake_irq not found, using macirq\n");
 		res->wol_irq = res->irq;
 	}
 
 	res->lpi_irq = of_irq_get_byname(np, "eth_lpi");
-	if (res->lpi_irq < 0) {
+	if (res->lpi_irq <= 0) {
 		dev_err(&pdev->dev, "IRQ eth_lpi not found\n");
 		ret = -ENODEV;
 		goto err_put_node;

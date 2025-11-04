@@ -410,6 +410,79 @@ static int elba_drv_init(struct platform_device *pdev)
 	return 0;
 }
 
+static u8 bl1000_read_b(struct sdhci_host *host, int reg)
+{
+	if ((reg & 0x3) == 0x3) {
+		return readl(host->ioaddr + (reg & ~0x3)) >> 24;
+	} else if ((reg & 0x3) == 0x2) {
+		return readl(host->ioaddr + (reg & ~0x3)) >> 16;
+	} else if ((reg & 0x3) == 0x1) {
+		return readw(host->ioaddr + (reg & ~0x3)) >> 8;
+	} else {
+		return readb(host->ioaddr + reg);
+	}
+}
+
+static u16 bl1000_read_w(struct sdhci_host *host, int reg)
+{
+	if ((reg & 0x3) == 0x2) {
+		return readl(host->ioaddr + (reg & ~0x3)) >> 16;
+	} else {
+		return readw(host->ioaddr + reg);
+	}
+}
+
+static void bl1000_write_b(struct sdhci_host *host, u8 val, int reg)
+{
+	u16 val16;
+	u32 val32;
+
+	if ((reg & 0x3) == 0x3) {
+		val32  = readl(host->ioaddr + (reg & ~0x3));
+		val32 &= ~(0xff << 24);
+		val32 |= val << 24;
+		writel(val32, host->ioaddr + (reg & ~0x3));
+	} else if ((reg & 0x3) == 0x2) {
+		val32  = readl(host->ioaddr + (reg & ~0x3));
+		val32 &= ~(0xff << 16);
+		val32 |= val << 16;
+		writel(val32, host->ioaddr + (reg & ~0x3));
+	} else if ((reg & 0x3) == 0x1) {
+		val16  = readw(host->ioaddr + (reg & ~0x3));
+		val16 &= ~(0xff << 8);
+		val16 |= val << 8;
+		writew(val16, host->ioaddr + (reg & ~0x3));
+	} else {
+		writeb(val, host->ioaddr + reg);
+	}
+}
+
+static void bl1000_write_w(struct sdhci_host *host, u16 val, int reg)
+{
+	u32 val32;
+
+	if ((reg & 0x3) == 0x2) {
+		val32  = readl(host->ioaddr + (reg & ~0x3));
+		val32 &= ~(0xffff << 16);
+		val32 |= val << 16;
+		writel(val32, host->ioaddr + (reg & ~0x3));
+	} else {
+		writew(val, host->ioaddr + reg);
+	}
+}
+
+static const struct sdhci_ops sdhci_cdns_bl1000_ops = {
+	.read_b = bl1000_read_b,
+	.read_w = bl1000_read_w,
+	.write_b = bl1000_write_b,
+	.write_w = bl1000_write_w,
+	.set_clock = sdhci_set_clock,
+	.get_timeout_clock = sdhci_cdns_get_timeout_clock,
+	.set_bus_width = sdhci_set_bus_width,
+	.reset = sdhci_reset,
+	.set_uhs_signaling = sdhci_cdns_set_uhs_signaling,
+};
+
 static const struct sdhci_ops sdhci_cdns_ops = {
 	.set_clock = sdhci_set_clock,
 	.get_timeout_clock = sdhci_cdns_get_timeout_clock,
@@ -417,6 +490,13 @@ static const struct sdhci_ops sdhci_cdns_ops = {
 	.reset = sdhci_reset,
 	.platform_execute_tuning = sdhci_cdns_execute_tuning,
 	.set_uhs_signaling = sdhci_cdns_set_uhs_signaling,
+};
+
+static const struct sdhci_cdns_drv_data sdhci_cdns_bl1000_drv_data = {
+	.pltfm_data = {
+		.ops = &sdhci_cdns_bl1000_ops,
+		.quirks = SDHCI_QUIRK_NO_MULTIBLOCK,
+	},
 };
 
 static const struct sdhci_cdns_drv_data sdhci_cdns_uniphier_drv_data = {
@@ -587,6 +667,10 @@ static const struct dev_pm_ops sdhci_cdns_pm_ops = {
 };
 
 static const struct of_device_id sdhci_cdns_match[] = {
+	{
+		.compatible = "baikal,bl1000-sd4hc",
+		.data = &sdhci_cdns_bl1000_drv_data,
+	},
 	{
 		.compatible = "socionext,uniphier-sd4hc",
 		.data = &sdhci_cdns_uniphier_drv_data,

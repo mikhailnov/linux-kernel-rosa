@@ -8,6 +8,7 @@
 
 #include <sound/hdmi-codec.h>
 
+struct drm_bridge;
 struct drm_display_info;
 struct drm_display_mode;
 struct drm_encoder;
@@ -173,6 +174,8 @@ struct dw_hdmi *dw_hdmi_bind(struct platform_device *pdev,
 			     const struct dw_hdmi_plat_data *plat_data);
 
 void dw_hdmi_resume(struct dw_hdmi *hdmi);
+
+struct drm_bridge *dw_hdmi_get_bridge(struct dw_hdmi *hdmi);
 
 void dw_hdmi_setup_rx_sense(struct dw_hdmi *hdmi, bool hpd, bool rx_sense);
 

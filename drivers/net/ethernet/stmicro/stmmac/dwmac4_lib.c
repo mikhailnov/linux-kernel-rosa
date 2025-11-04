@@ -181,21 +181,26 @@ int dwmac4_dma_interrupt(struct stmmac_priv *priv, void __iomem *ioaddr,
 
 	/* ABNORMAL interrupts */
 	if (unlikely(intr_status & DMA_CHAN_STATUS_AIS)) {
-		if (unlikely(intr_status & DMA_CHAN_STATUS_RBU))
+		if (unlikely(intr_status & DMA_CHAN_STATUS_RBU)) {
 			x->rx_buf_unav_irq++;
+			ret = handle_rx;
+		}
+
 		if (unlikely(intr_status & DMA_CHAN_STATUS_RPS))
 			x->rx_process_stopped_irq++;
 		if (unlikely(intr_status & DMA_CHAN_STATUS_RWT))
 			x->rx_watchdog_irq++;
 		if (unlikely(intr_status & DMA_CHAN_STATUS_ETI))
 			x->tx_early_irq++;
-		if (unlikely(intr_status & DMA_CHAN_STATUS_TPS)) {
+		if (unlikely(intr_status & DMA_CHAN_STATUS_TPS))
 			x->tx_process_stopped_irq++;
-			ret = tx_hard_error;
-		}
+
 		if (unlikely(intr_status & DMA_CHAN_STATUS_FBE)) {
 			x->fatal_bus_error_irq++;
-			ret = tx_hard_error;
+			if (intr_status & DMA_CHAN_STATUS_REB)
+				ret = rx_hard_error;
+			if (intr_status & DMA_CHAN_STATUS_TEB)
+				ret = tx_hard_error;
 		}
 	}
 	/* TX/RX NORMAL interrupts */

@@ -13,7 +13,7 @@
 #include "descs_com.h"
 
 static int ndesc_get_tx_status(struct stmmac_extra_stats *x,
-			       struct dma_desc *p, void __iomem *ioaddr)
+			       struct dma_desc *p)
 {
 	unsigned int tdes0 = le32_to_cpu(p->des0);
 	unsigned int tdes1 = le32_to_cpu(p->des1);
@@ -57,57 +57,72 @@ static int ndesc_get_tx_status(struct stmmac_extra_stats *x,
 	return ret;
 }
 
-static int ndesc_get_tx_len(struct dma_desc *p)
-{
-	return (le32_to_cpu(p->des1) & RDES1_BUFFER1_SIZE_MASK);
-}
-
 /* This function verifies if each incoming frame has some errors
  * and, if required, updates the multicast statistics.
  * In case of success, it returns good_frame because the GMAC device
  * is supposed to be able to compute the csum in HW. */
-static int ndesc_get_rx_status(struct stmmac_extra_stats *x,
-			       struct dma_desc *p)
+static int ndesc_get_rx_basic_status(unsigned int rdes0,
+				     struct stmmac_extra_stats *x)
 {
 	int ret = good_frame;
-	unsigned int rdes0 = le32_to_cpu(p->des0);
 
 	if (unlikely(rdes0 & RDES0_OWN))
 		return dma_own;
 
-	if (unlikely(!(rdes0 & RDES0_LAST_DESCRIPTOR))) {
-		x->rx_length++;
-		return discard_frame;
-	}
+	if (unlikely(!(rdes0 & RDES0_LAST_DESCRIPTOR)))
+		return rx_not_ls;
+
+	if (unlikely(!(rdes0 & RDES0_FRAME_TYPE)))
+		ret = llc_snap;
 
 	if (unlikely(rdes0 & RDES0_ERROR_SUMMARY)) {
-		if (unlikely(rdes0 & RDES0_DESCRIPTOR_ERROR))
+		if (unlikely(rdes0 & RDES0_DESCRIPTOR_ERROR)) {
 			x->rx_desc++;
-		if (unlikely(rdes0 & RDES0_SA_FILTER_FAIL))
-			x->sa_filter_fail++;
-		if (unlikely(rdes0 & RDES0_OVERFLOW_ERROR))
+			ret |= cutoff_err;
+		}
+
+		if (unlikely(rdes0 & RDES0_OVERFLOW_ERROR)) {
 			x->overflow_error++;
-		if (unlikely(rdes0 & RDES0_IPC_CSUM_ERROR))
-			x->ipc_csum_error++;
+			ret |= cutoff_err;
+		}
+
+		if (unlikely(rdes0 & RDES0_GIANT_FRAME_ERROR)) {
+			x->rx_length++;
+			ret |= len_err;
+		}
+
 		if (unlikely(rdes0 & RDES0_COLLISION)) {
 			x->rx_collision++;
+			ret |= proto_err;
 		}
+
+		if (unlikely(rdes0 & RDES0_RECEIVE_WATCHDOG)) {
+			x->rx_watchdog++;
+			ret |= cutoff_err;
+		}
+
+		if (unlikely(rdes0 & RDES0_MII_ERROR)) {
+			x->rx_mii++;
+			ret |= proto_err;
+		}
+
 		if (unlikely(rdes0 & RDES0_CRC_ERROR)) {
 			x->rx_crc_errors++;
+			ret |= csum_err;
 		}
-		ret = discard_frame;
 	}
 	if (unlikely(rdes0 & RDES0_DRIBBLING))
 		x->dribbling_bit++;
 
-	if (unlikely(rdes0 & RDES0_LENGTH_ERROR)) {
+	if (unlikely(rdes0 & RDES0_SA_FILTER_FAIL))
+		x->sa_filter_fail++;
+
+	if (unlikely(rdes0 & RDES0_DA_FILTER_FAIL))
+		x->da_rx_filter_fail++;
+
+	if (unlikely(rdes0 & RDES0_LENGTH_ERROR))
 		x->rx_length++;
-		ret = discard_frame;
-	}
-	if (unlikely(rdes0 & RDES0_MII_ERROR)) {
-		x->rx_mii++;
-		ret = discard_frame;
-	}
+
 #ifdef STMMAC_VLAN_TAG_USED
 	if (rdes0 & RDES0_VLAN_TAG)
 		x->vlan_tag++;
@@ -115,18 +130,38 @@ static int ndesc_get_rx_status(struct stmmac_extra_stats *x,
 	return ret;
 }
 
+static int ndesc_get_rx_status_nocoe(struct stmmac_extra_stats *x,
+				     struct dma_desc *p)
+{
+	return ndesc_get_rx_basic_status(le32_to_cpu(p->des0), x);
+}
+
+static int ndesc_get_rx_status_coe2(struct stmmac_extra_stats *x,
+				    struct dma_desc *p)
+{
+	unsigned int rdes0 = le32_to_cpu(p->des0);
+	int ret;
+
+	ret = ndesc_get_rx_basic_status(rdes0, x);
+	if (ret & (dma_own | rx_not_ls))
+		return ret;
+
+	/* Rx COE type 2 has been available since v3.30a. If it's synthesized
+	 * into the GMAC the Bits 5, 7, and 0 state reflects the Rx COE
+	 * outcome.
+	 */
+	return ret | com_desc_rx_coe_rdes0(!!(rdes0 & RDES0_IPC_CSUM_ERROR),
+					   !!(rdes0 & RDES0_FRAME_TYPE),
+					   !!(rdes0 & RDES0_PAYLOAD_CSUM_ERR));
+}
+
 static void ndesc_init_rx_desc(struct dma_desc *p, int disable_rx_ic, int mode,
 			       int end, int bfsize)
 {
-	int bfsize1;
-
 	p->des0 |= cpu_to_le32(RDES0_OWN);
 
-	bfsize1 = min(bfsize, BUF_SIZE_2KiB - 1);
-	p->des1 |= cpu_to_le32(bfsize1 & RDES1_BUFFER1_SIZE_MASK);
-
 	if (mode == STMMAC_CHAIN_MODE)
-		ndesc_rx_set_on_chain(p, end);
+		ndesc_rx_set_on_chain(p, bfsize);
 	else
 		ndesc_rx_set_on_ring(p, end, bfsize);
 
@@ -136,9 +171,9 @@ static void ndesc_init_rx_desc(struct dma_desc *p, int disable_rx_ic, int mode,
 
 static void ndesc_init_tx_desc(struct dma_desc *p, int mode, int end)
 {
-	p->des0 &= cpu_to_le32(~TDES0_OWN);
+	memset(p, 0, offsetof(struct dma_desc, des2));
 	if (mode == STMMAC_CHAIN_MODE)
-		ndesc_tx_set_on_chain(p);
+		ndesc_end_tx_desc_on_chain(p, 0, false);
 	else
 		ndesc_end_tx_desc_on_ring(p, end);
 }
@@ -158,18 +193,66 @@ static void ndesc_set_rx_owner(struct dma_desc *p, int disable_rx_ic)
 	p->des0 |= cpu_to_le32(RDES0_OWN);
 }
 
+static unsigned int ndesc_get_rx_len(int mode)
+{
+	if (mode == STMMAC_CHAIN_MODE)
+		return ndesc_rx_desc_len_on_chain();
+	else
+		return ndesc_rx_desc_len_on_ring();
+}
+
+static void ndesc_release_rx_desc(struct dma_desc *p, int disable_rx_ic,
+				  int is_fs, bool rx_own)
+{
+	unsigned int rdes1 = le32_to_cpu(p->des1);
+
+	if (disable_rx_ic)
+		rdes1 |= cpu_to_le32(RDES1_DISABLE_IC);
+	else
+		rdes1 &= cpu_to_le32(~RDES1_DISABLE_IC);
+
+	p->des1 = cpu_to_le32(rdes1);
+
+	/* Before releasing the initial descriptor make sure that all
+	 * the previous writes are visible to the controller.
+	 */
+	if (is_fs && rx_own)
+		dma_wmb();
+
+	if (rx_own)
+		p->des0 = cpu_to_le32(RDES0_OWN);
+}
+
+static void ndesc_prepare_rx_desc(struct dma_desc *p, int mode,
+				  dma_addr_t np, bool hwts_rx, int bfsize)
+{
+	if (mode == STMMAC_CHAIN_MODE)
+		ndesc_rx_set_buf_on_chain(p, np, hwts_rx);
+	else
+		ndesc_rx_set_buf_on_ring(p, bfsize);
+}
+
 static int ndesc_get_tx_ls(struct dma_desc *p)
 {
 	return (le32_to_cpu(p->des1) & TDES1_LAST_SEGMENT) >> 30;
 }
 
-static void ndesc_release_tx_desc(struct dma_desc *p, int mode)
+static unsigned int ndesc_get_tx_len(int mode)
+{
+	if (mode == STMMAC_CHAIN_MODE)
+		return ndesc_tx_desc_len_on_chain();
+	else
+		return ndesc_tx_desc_len_on_ring();
+}
+
+static void ndesc_release_tx_desc(struct dma_desc *p, int mode,
+				  dma_addr_t np, bool hwts_tx)
 {
 	int ter = (le32_to_cpu(p->des1) & TDES1_END_RING) >> 25;
 
 	memset(p, 0, offsetof(struct dma_desc, des2));
 	if (mode == STMMAC_CHAIN_MODE)
-		ndesc_tx_set_on_chain(p);
+		ndesc_end_tx_desc_on_chain(p, np, hwts_tx);
 	else
 		ndesc_end_tx_desc_on_ring(p, ter);
 }
@@ -209,23 +292,10 @@ static void ndesc_set_tx_ic(struct dma_desc *p)
 	p->des1 |= cpu_to_le32(TDES1_INTERRUPT);
 }
 
-static int ndesc_get_rx_frame_len(struct dma_desc *p, int rx_coe_type)
+static int ndesc_get_rx_frame_len(struct dma_desc *p)
 {
-	unsigned int csum = 0;
-
-	/* The type-1 checksum offload engines append the checksum at
-	 * the end of frame and the two bytes of checksum are added in
-	 * the length.
-	 * Adjust for that in the framelen for type-1 checksum offload
-	 * engines
-	 */
-	if (rx_coe_type == STMMAC_RX_COE_TYPE1)
-		csum = 2;
-
-	return (((le32_to_cpu(p->des0) & RDES0_FRAME_LEN_MASK)
-				>> RDES0_FRAME_LEN_SHIFT) -
-		csum);
-
+	return (le32_to_cpu(p->des0) & RDES0_FRAME_LEN_MASK) >>
+	       RDES0_FRAME_LEN_SHIFT;
 }
 
 static void ndesc_enable_tx_timestamp(struct dma_desc *p)
@@ -297,11 +367,40 @@ static void ndesc_clear(struct dma_desc *p)
 
 const struct stmmac_desc_ops ndesc_ops = {
 	.tx_status = ndesc_get_tx_status,
-	.rx_status = ndesc_get_rx_status,
+	.rx_status = ndesc_get_rx_status_nocoe,
+	.get_tx_len = ndesc_get_tx_len,
+	.get_rx_len = ndesc_get_rx_len,
+	.init_rx_desc = ndesc_init_rx_desc,
+	.init_tx_desc = ndesc_init_tx_desc,
+	.get_tx_owner = ndesc_get_tx_owner,
+	.release_rx_desc = ndesc_release_rx_desc,
+	.prepare_rx_desc = ndesc_prepare_rx_desc,
+	.release_tx_desc = ndesc_release_tx_desc,
+	.prepare_tx_desc = ndesc_prepare_tx_desc,
+	.set_tx_ic = ndesc_set_tx_ic,
+	.get_tx_ls = ndesc_get_tx_ls,
+	.set_tx_owner = ndesc_set_tx_owner,
+	.set_rx_owner = ndesc_set_rx_owner,
+	.get_rx_frame_len = ndesc_get_rx_frame_len,
+	.enable_tx_timestamp = ndesc_enable_tx_timestamp,
+	.get_tx_timestamp_status = ndesc_get_tx_timestamp_status,
+	.get_timestamp = ndesc_get_timestamp,
+	.get_rx_timestamp_status = ndesc_get_rx_timestamp_status,
+	.display_ring = ndesc_display_ring,
+	.set_addr = ndesc_set_addr,
+	.clear = ndesc_clear,
+};
+
+const struct stmmac_desc_ops ndesc_rxcoe2_ops = {
+	.tx_status = ndesc_get_tx_status,
+	.rx_status = ndesc_get_rx_status_coe2,
+	.get_rx_len = ndesc_get_rx_len,
 	.get_tx_len = ndesc_get_tx_len,
 	.init_rx_desc = ndesc_init_rx_desc,
 	.init_tx_desc = ndesc_init_tx_desc,
 	.get_tx_owner = ndesc_get_tx_owner,
+	.release_rx_desc = ndesc_release_rx_desc,
+	.prepare_rx_desc = ndesc_prepare_rx_desc,
 	.release_tx_desc = ndesc_release_tx_desc,
 	.prepare_tx_desc = ndesc_prepare_tx_desc,
 	.set_tx_ic = ndesc_set_tx_ic,

@@ -32,6 +32,9 @@ static const struct of_device_id allowlist[] __initconst = {
 	{ .compatible = "arm,integrator-ap", },
 	{ .compatible = "arm,integrator-cp", },
 
+	{ .compatible = "baikal,bm1000", },
+	{ .compatible = "baikal,bs1000", },
+
 	{ .compatible = "hisilicon,hi3660", },
 
 	{ .compatible = "fsl,imx27", },

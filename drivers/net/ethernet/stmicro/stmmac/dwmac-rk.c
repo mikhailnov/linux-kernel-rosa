@@ -1687,7 +1687,8 @@ static int rk_gmac_clk_init(struct plat_stmmacenet_data *plat)
 	}
 
 	if (plat->phy_node && bsp_priv->integrated_phy) {
-		bsp_priv->clk_phy = of_clk_get(plat->phy_node, 0);
+		bsp_priv->clk_phy =
+			devm_get_clk_from_child(dev, plat->phy_node, NULL);
 		ret = PTR_ERR_OR_ZERO(bsp_priv->clk_phy);
 		if (ret)
 			return dev_err_probe(dev, ret, "Cannot get PHY clock\n");
@@ -1890,6 +1891,13 @@ static int rk_gmac_check_ops(struct rk_priv_data *bsp_priv)
 	return 0;
 }
 
+static void rk_gmac_clean(struct plat_stmmacenet_data *plat)
+{
+	struct rk_priv_data *bsp_priv = plat->bsp_priv;
+
+	reset_control_put(bsp_priv->phy_reset);
+}
+
 static int rk_gmac_powerup(struct rk_priv_data *bsp_priv)
 {
 	int ret;
@@ -2011,11 +2019,11 @@ static int rk_gmac_probe(struct platform_device *pdev)
 
 	ret = rk_gmac_clk_init(plat_dat);
 	if (ret)
-		return ret;
+		goto err_gmac_clean;
 
 	ret = rk_gmac_powerup(plat_dat->bsp_priv);
 	if (ret)
-		return ret;
+		goto err_gmac_clean;
 
 	ret = stmmac_dvr_probe(&pdev->dev, plat_dat, &stmmac_res);
 	if (ret)
@@ -2025,6 +2033,9 @@ static int rk_gmac_probe(struct platform_device *pdev)
 
 err_gmac_powerdown:
 	rk_gmac_powerdown(plat_dat->bsp_priv);
+
+err_gmac_clean:
+	rk_gmac_clean(plat_dat);
 
 	return ret;
 }
@@ -2036,6 +2047,8 @@ static void rk_gmac_remove(struct platform_device *pdev)
 	stmmac_dvr_remove(&pdev->dev);
 
 	rk_gmac_powerdown(bsp_priv);
+
+	rk_gmac_clean(priv->plat);
 }
 
 #ifdef CONFIG_PM_SLEEP

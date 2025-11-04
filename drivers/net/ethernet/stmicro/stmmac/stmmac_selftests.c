@@ -757,11 +757,7 @@ static int stmmac_test_flowctrl(struct stmmac_priv *priv)
 	dev_add_pack(&tpriv->pt);
 
 	/* Compute minimum number of packets to make FIFO full */
-	pkt_count = priv->plat->rx_fifo_size;
-	if (!pkt_count)
-		pkt_count = priv->dma_cap.rx_fifo_size;
-	pkt_count /= 1400;
-	pkt_count *= 2;
+	pkt_count = priv->plat->rx_fifo_size / 1400 * 2;
 
 	for (i = 0; i < rx_cnt; i++)
 		stmmac_stop_rx(priv, priv->ioaddr, i);
@@ -821,7 +817,7 @@ static int stmmac_test_rss(struct stmmac_priv *priv)
 {
 	struct stmmac_packet_attrs attr = { };
 
-	if (!priv->dma_cap.rssen || !priv->rss.enable)
+	if (!(priv->dev->features & NETIF_F_RXHASH))
 		return -EOPNOTSUPP;
 
 	attr.dst = priv->dev->dev_addr;
@@ -1335,19 +1331,16 @@ static int __stmmac_test_l3filt(struct stmmac_priv *priv, u32 dst, u32 src,
 	struct stmmac_packet_attrs attr = { };
 	struct flow_dissector *dissector;
 	struct flow_cls_offload *cls;
-	int ret, old_enable = 0;
 	struct flow_rule *rule;
+	int ret;
 
 	if (!tc_can_offload(priv->dev))
 		return -EOPNOTSUPP;
 	if (!priv->dma_cap.l3l4fnum)
 		return -EOPNOTSUPP;
-	if (priv->rss.enable) {
-		old_enable = priv->rss.enable;
-		priv->rss.enable = false;
-		stmmac_rss_configure(priv, priv->hw, NULL,
+	if (priv->dev->features & NETIF_F_RXHASH)
+		stmmac_rss_configure(priv, priv->hw, &priv->rss, false,
 				     priv->plat->rx_queues_to_use);
-	}
 
 	dissector = kzalloc(sizeof(*dissector), GFP_KERNEL);
 	if (!dissector) {
@@ -1415,11 +1408,9 @@ cleanup_cls:
 cleanup_dissector:
 	kfree(dissector);
 cleanup_rss:
-	if (old_enable) {
-		priv->rss.enable = old_enable;
-		stmmac_rss_configure(priv, priv->hw, &priv->rss,
+	if (priv->dev->features & NETIF_F_RXHASH)
+		stmmac_rss_configure(priv, priv->hw, &priv->rss, true,
 				     priv->plat->rx_queues_to_use);
-	}
 
 	return ret;
 }
@@ -1461,19 +1452,16 @@ static int __stmmac_test_l4filt(struct stmmac_priv *priv, u32 dst, u32 src,
 	struct stmmac_packet_attrs attr = { };
 	struct flow_dissector *dissector;
 	struct flow_cls_offload *cls;
-	int ret, old_enable = 0;
 	struct flow_rule *rule;
+	int ret;
 
 	if (!tc_can_offload(priv->dev))
 		return -EOPNOTSUPP;
 	if (!priv->dma_cap.l3l4fnum)
 		return -EOPNOTSUPP;
-	if (priv->rss.enable) {
-		old_enable = priv->rss.enable;
-		priv->rss.enable = false;
-		stmmac_rss_configure(priv, priv->hw, NULL,
+	if (priv->dev->features & NETIF_F_RXHASH)
+		stmmac_rss_configure(priv, priv->hw, &priv->rss, false,
 				     priv->plat->rx_queues_to_use);
-	}
 
 	dissector = kzalloc(sizeof(*dissector), GFP_KERNEL);
 	if (!dissector) {
@@ -1546,11 +1534,9 @@ cleanup_cls:
 cleanup_dissector:
 	kfree(dissector);
 cleanup_rss:
-	if (old_enable) {
-		priv->rss.enable = old_enable;
-		stmmac_rss_configure(priv, priv->hw, &priv->rss,
+	if (priv->dev->features & NETIF_F_RXHASH)
+		stmmac_rss_configure(priv, priv->hw, &priv->rss, true,
 				     priv->plat->rx_queues_to_use);
-	}
 
 	return ret;
 }

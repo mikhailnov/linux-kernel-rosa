@@ -123,7 +123,11 @@ int catpt_dmac_probe(struct catpt_dev *cdev)
 
 	dmac->regs = cdev->lpe_ba + cdev->spec->host_dma_offset[CATPT_DMA_DEVID];
 	dmac->dev = cdev->dev;
-	dmac->irq = cdev->irq;
+	dmac->irq_num = 1;
+	dmac->irq = devm_kzalloc(cdev->dev, sizeof(int), GFP_KERNEL);
+	if (!dmac->irq)
+		return -ENOMEM;
+	dmac->irq[0] = cdev->irq;
 
 	ret = dma_coerce_mask_and_coherent(cdev->dev, DMA_BIT_MASK(31));
 	if (ret)

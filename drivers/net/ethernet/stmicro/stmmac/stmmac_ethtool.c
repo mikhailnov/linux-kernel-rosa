@@ -16,6 +16,8 @@
 #include <linux/phylink.h>
 #include <linux/net_tstamp.h>
 
+#include <net/page_pool/helpers.h>
+
 #include "stmmac.h"
 #include "dwmac_dma.h"
 #include "dwxgmac2.h"
@@ -89,7 +91,6 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(fatal_bus_error_irq),
 	/* Tx/Rx IRQ Events */
 	STMMAC_STAT(rx_early_irq),
-	STMMAC_STAT(threshold),
 	STMMAC_STAT(irq_receive_pmt_irq_n),
 	/* MMC info */
 	STMMAC_STAT(mmc_tx_irq_n),
@@ -121,6 +122,7 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(ptp_frame_type),
 	STMMAC_STAT(ptp_ver),
 	STMMAC_STAT(timestamp_dropped),
+	STMMAC_STAT(arp_pkt_ofld),
 	STMMAC_STAT(av_pkt_rcvd),
 	STMMAC_STAT(av_tagged_pkt_rcvd),
 	STMMAC_STAT(vlan_tag_priority_val),
@@ -322,84 +324,6 @@ static int stmmac_ethtool_get_link_ksettings(struct net_device *dev,
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 
-	if (!(priv->plat->flags & STMMAC_FLAG_HAS_INTEGRATED_PCS) &&
-	    (priv->hw->pcs & STMMAC_PCS_RGMII ||
-	     priv->hw->pcs & STMMAC_PCS_SGMII)) {
-		struct rgmii_adv adv;
-		u32 supported, advertising, lp_advertising;
-
-		if (!priv->xstats.pcs_link) {
-			cmd->base.speed = SPEED_UNKNOWN;
-			cmd->base.duplex = DUPLEX_UNKNOWN;
-			return 0;
-		}
-		cmd->base.duplex = priv->xstats.pcs_duplex;
-
-		cmd->base.speed = priv->xstats.pcs_speed;
-
-		/* Get and convert ADV/LP_ADV from the HW AN registers */
-		if (stmmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv))
-			return -EOPNOTSUPP;	/* should never happen indeed */
-
-		/* Encoding of PSE bits is defined in 802.3z, 37.2.1.4 */
-
-		ethtool_convert_link_mode_to_legacy_u32(
-			&supported, cmd->link_modes.supported);
-		ethtool_convert_link_mode_to_legacy_u32(
-			&advertising, cmd->link_modes.advertising);
-		ethtool_convert_link_mode_to_legacy_u32(
-			&lp_advertising, cmd->link_modes.lp_advertising);
-
-		if (adv.pause & STMMAC_PCS_PAUSE)
-			advertising |= ADVERTISED_Pause;
-		if (adv.pause & STMMAC_PCS_ASYM_PAUSE)
-			advertising |= ADVERTISED_Asym_Pause;
-		if (adv.lp_pause & STMMAC_PCS_PAUSE)
-			lp_advertising |= ADVERTISED_Pause;
-		if (adv.lp_pause & STMMAC_PCS_ASYM_PAUSE)
-			lp_advertising |= ADVERTISED_Asym_Pause;
-
-		/* Reg49[3] always set because ANE is always supported */
-		cmd->base.autoneg = ADVERTISED_Autoneg;
-		supported |= SUPPORTED_Autoneg;
-		advertising |= ADVERTISED_Autoneg;
-		lp_advertising |= ADVERTISED_Autoneg;
-
-		if (adv.duplex) {
-			supported |= (SUPPORTED_1000baseT_Full |
-				      SUPPORTED_100baseT_Full |
-				      SUPPORTED_10baseT_Full);
-			advertising |= (ADVERTISED_1000baseT_Full |
-					ADVERTISED_100baseT_Full |
-					ADVERTISED_10baseT_Full);
-		} else {
-			supported |= (SUPPORTED_1000baseT_Half |
-				      SUPPORTED_100baseT_Half |
-				      SUPPORTED_10baseT_Half);
-			advertising |= (ADVERTISED_1000baseT_Half |
-					ADVERTISED_100baseT_Half |
-					ADVERTISED_10baseT_Half);
-		}
-		if (adv.lp_duplex)
-			lp_advertising |= (ADVERTISED_1000baseT_Full |
-					   ADVERTISED_100baseT_Full |
-					   ADVERTISED_10baseT_Full);
-		else
-			lp_advertising |= (ADVERTISED_1000baseT_Half |
-					   ADVERTISED_100baseT_Half |
-					   ADVERTISED_10baseT_Half);
-		cmd->base.port = PORT_OTHER;
-
-		ethtool_convert_legacy_u32_to_link_mode(
-			cmd->link_modes.supported, supported);
-		ethtool_convert_legacy_u32_to_link_mode(
-			cmd->link_modes.advertising, advertising);
-		ethtool_convert_legacy_u32_to_link_mode(
-			cmd->link_modes.lp_advertising, lp_advertising);
-
-		return 0;
-	}
-
 	return phylink_ethtool_ksettings_get(priv->phylink, cmd);
 }
 
@@ -408,20 +332,6 @@ stmmac_ethtool_set_link_ksettings(struct net_device *dev,
 				  const struct ethtool_link_ksettings *cmd)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
-
-	if (!(priv->plat->flags & STMMAC_FLAG_HAS_INTEGRATED_PCS) &&
-	    (priv->hw->pcs & STMMAC_PCS_RGMII ||
-	     priv->hw->pcs & STMMAC_PCS_SGMII)) {
-		/* Only support ANE */
-		if (cmd->base.autoneg != AUTONEG_ENABLE)
-			return -EINVAL;
-
-		mutex_lock(&priv->lock);
-		stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
-		mutex_unlock(&priv->lock);
-
-		return 0;
-	}
 
 	return phylink_ethtool_ksettings_set(priv->phylink, cmd);
 }
@@ -515,15 +425,8 @@ stmmac_get_pauseparam(struct net_device *netdev,
 		      struct ethtool_pauseparam *pause)
 {
 	struct stmmac_priv *priv = netdev_priv(netdev);
-	struct rgmii_adv adv_lp;
 
-	if (priv->hw->pcs && !stmmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv_lp)) {
-		pause->autoneg = 1;
-		if (!adv_lp.pause)
-			return;
-	} else {
-		phylink_ethtool_get_pauseparam(priv->phylink, pause);
-	}
+	phylink_ethtool_get_pauseparam(priv->phylink, pause);
 }
 
 static int
@@ -531,16 +434,8 @@ stmmac_set_pauseparam(struct net_device *netdev,
 		      struct ethtool_pauseparam *pause)
 {
 	struct stmmac_priv *priv = netdev_priv(netdev);
-	struct rgmii_adv adv_lp;
 
-	if (priv->hw->pcs && !stmmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv_lp)) {
-		pause->autoneg = 1;
-		if (!adv_lp.pause)
-			return -EOPNOTSUPP;
-		return 0;
-	} else {
-		return phylink_ethtool_set_pauseparam(priv->phylink, pause);
-	}
+	return phylink_ethtool_set_pauseparam(priv->phylink, pause);
 }
 
 static u64 stmmac_get_rx_normal_irq_n(struct stmmac_priv *priv, int q)
@@ -589,6 +484,9 @@ static void stmmac_get_per_qstats(struct stmmac_priv *priv, u64 *data)
 {
 	u32 tx_cnt = priv->plat->tx_queues_to_use;
 	u32 rx_cnt = priv->plat->rx_queues_to_use;
+#ifdef CONFIG_PAGE_POOL_STATS
+	struct page_pool_stats stats = {};
+#endif
 	unsigned int start;
 	int q;
 
@@ -616,7 +514,18 @@ static void stmmac_get_per_qstats(struct stmmac_priv *priv, u64 *data)
 
 		*data++ = pkt_n;
 		*data++ = stmmac_get_rx_normal_irq_n(priv, q);
+
+#ifdef CONFIG_PAGE_POOL_STATS
+		if (priv->dma_conf.rx_queue[q].page_pool)
+			page_pool_get_stats(priv->dma_conf.rx_queue[q].page_pool, &stats);
+		if (priv->dma_conf.rx_queue[q].sec_page_pool)
+			page_pool_get_stats(priv->dma_conf.rx_queue[q].sec_page_pool, &stats);
+#endif
 	}
+
+#ifdef CONFIG_PAGE_POOL_STATS
+	page_pool_ethtool_stats_get(data, &stats);
+#endif
 }
 
 static void stmmac_get_ethtool_stats(struct net_device *dev,
@@ -626,10 +535,11 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 	u32 rx_queues_count = priv->plat->rx_queues_to_use;
 	u32 tx_queues_count = priv->plat->tx_queues_to_use;
 	u64 napi_poll = 0, normal_irq_n = 0;
-	int i, j = 0, pos, ret;
 	unsigned long count;
 	unsigned int start;
+	int i, j = 0, pos;
 
+	/* Update the statistics by reading from the HW counters */
 	if (priv->dma_cap.asp) {
 		for (i = 0; i < STMMAC_SAFETY_FEAT_SIZE; i++) {
 			if (!stmmac_safety_feat_dump(priv, &priv->sstats, i,
@@ -638,33 +548,32 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 		}
 	}
 
-	/* Update the DMA HW counters for dwmac10/100 */
-	ret = stmmac_dma_diagnostic_fr(priv, &priv->xstats, priv->ioaddr);
-	if (ret) {
-		/* If supported, for new GMAC chips expose the MMC counters */
-		if (priv->dma_cap.rmon) {
-			stmmac_mmc_read(priv, priv->mmcaddr, &priv->mmc);
+	if (priv->dma_cap.rmon) {
+		stmmac_mmc_read(priv, priv->mmcaddr, &priv->mmc);
 
-			for (i = 0; i < STMMAC_MMC_STATS_LEN; i++) {
-				char *p;
-				p = (char *)priv + stmmac_mmc[i].stat_offset;
+		for (i = 0; i < STMMAC_MMC_STATS_LEN; i++) {
+			char *p;
+			p = (char *)priv + stmmac_mmc[i].stat_offset;
 
-				data[j++] = (stmmac_mmc[i].sizeof_stat ==
-					     sizeof(u64)) ? (*(u64 *)p) :
-					     (*(u32 *)p);
-			}
+			data[j++] = (stmmac_mmc[i].sizeof_stat ==
+				     sizeof(u64)) ? (*(u64 *)p) :
+				     (*(u32 *)p);
 		}
-		if (priv->eee_enabled) {
-			int val = phylink_get_eee_err(priv->phylink);
-			if (val)
-				priv->xstats.phy_eee_wakeup_error_n = val;
-		}
-
-		if (priv->synopsys_id >= DWMAC_CORE_3_50)
-			stmmac_mac_debug(priv, priv->ioaddr,
-					(void *)&priv->xstats,
-					rx_queues_count, tx_queues_count);
 	}
+
+	if (priv->eee_enabled) {
+		int val = phylink_get_eee_err(priv->phylink);
+		if (val)
+			priv->xstats.phy_eee_wakeup_error_n = val;
+	}
+
+	stmmac_mac_debug(priv, priv->ioaddr,
+			(void *)&priv->xstats,
+			rx_queues_count, tx_queues_count);
+
+	for (i = 0; i < rx_queues_count; i++)
+		stmmac_dma_diagnostic_fr(priv, priv->ioaddr, &priv->xstats, i);
+
 	for (i = 0; i < STMMAC_STATS_LEN; i++) {
 		char *p = (char *)priv + stmmac_gstrings_stats[i].stat_offset;
 		data[j++] = (stmmac_gstrings_stats[i].sizeof_stat ==
@@ -736,7 +645,8 @@ static int stmmac_get_sset_count(struct net_device *netdev, int sset)
 	case ETH_SS_STATS:
 		len = STMMAC_STATS_LEN + STMMAC_QSTATS +
 		      STMMAC_TXQ_STATS * tx_cnt +
-		      STMMAC_RXQ_STATS * rx_cnt;
+		      STMMAC_RXQ_STATS * rx_cnt +
+		      page_pool_ethtool_stats_get_count();
 
 		if (priv->dma_cap.rmon)
 			len += STMMAC_MMC_STATS_LEN;
@@ -779,6 +689,8 @@ static void stmmac_get_qstats_string(struct stmmac_priv *priv, u8 *data)
 			data += ETH_GSTRING_LEN;
 		}
 	}
+
+	page_pool_ethtool_stats_get_strings(data);
 }
 
 static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
@@ -1165,6 +1077,7 @@ static int stmmac_set_rxfh(struct net_device *dev,
 		memcpy(priv->rss.key, rxfh->key, sizeof(priv->rss.key));
 
 	return stmmac_rss_configure(priv, priv->hw, &priv->rss,
+				    priv->dev->features & NETIF_F_RXHASH,
 				    priv->plat->rx_queues_to_use);
 }
 
@@ -1175,18 +1088,14 @@ static void stmmac_get_channels(struct net_device *dev,
 
 	chan->rx_count = priv->plat->rx_queues_to_use;
 	chan->tx_count = priv->plat->tx_queues_to_use;
-	chan->max_rx = priv->dma_cap.number_rx_queues;
-	chan->max_tx = priv->dma_cap.number_tx_queues;
+	chan->max_rx = priv->dma_conf.rx_queue_max;
+	chan->max_tx = priv->dma_conf.tx_queue_max;
 }
 
 static int stmmac_set_channels(struct net_device *dev,
 			       struct ethtool_channels *chan)
 {
-	struct stmmac_priv *priv = netdev_priv(dev);
-
-	if (chan->rx_count > priv->dma_cap.number_rx_queues ||
-	    chan->tx_count > priv->dma_cap.number_tx_queues ||
-	    !chan->rx_count || !chan->tx_count)
+	if (!chan->rx_count || !chan->tx_count)
 		return -EINVAL;
 
 	return stmmac_reinit_queues(dev, chan->rx_count, chan->tx_count);

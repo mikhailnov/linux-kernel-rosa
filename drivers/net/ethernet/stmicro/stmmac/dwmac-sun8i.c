@@ -674,13 +674,18 @@ static void sun8i_dwmac_get_umac_addr(struct mac_device_info *hw,
 }
 
 /* caution this function must return non 0 to work */
-static int sun8i_dwmac_rx_ipc_enable(struct mac_device_info *hw)
+static int sun8i_dwmac_rx_ipc_enable(struct mac_device_info *hw, bool enable)
 {
 	void __iomem *ioaddr = hw->pcsr;
 	u32 v;
 
 	v = readl(ioaddr + EMAC_RX_CTL0);
-	v |= EMAC_RX_DO_CRC;
+
+	if (enable)
+		v |= EMAC_RX_DO_CRC;
+	else
+		v &= ~EMAC_RX_DO_CRC;
+
 	writel(v, ioaddr + EMAC_RX_CTL0);
 
 	return 1;
@@ -1231,7 +1236,7 @@ static int sun8i_dwmac_probe(struct platform_device *pdev)
 	 * hardware features were copied from Allwinner drivers.
 	 */
 	plat_dat->mac_interface = interface;
-	plat_dat->rx_coe = STMMAC_RX_COE_TYPE2;
+	plat_dat->rx_coe = 1;
 	plat_dat->tx_coe = 1;
 	plat_dat->flags |= STMMAC_FLAG_HAS_SUN8I;
 	plat_dat->bsp_priv = gmac;

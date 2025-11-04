@@ -81,30 +81,6 @@ static void dwmac100_dump_dma_regs(struct stmmac_priv *priv,
 		readl(ioaddr + DMA_CUR_RX_BUF_ADDR);
 }
 
-/* DMA controller has two counters to track the number of the missed frames. */
-static void dwmac100_dma_diagnostic_fr(struct stmmac_extra_stats *x,
-				       void __iomem *ioaddr)
-{
-	u32 csr8 = readl(ioaddr + DMA_MISSED_FRAME_CTR);
-
-	if (unlikely(csr8)) {
-		if (csr8 & DMA_MISSED_FRAME_OVE) {
-			x->rx_overflow_cntr += 0x800;
-		} else {
-			unsigned int ove_cntr;
-			ove_cntr = ((csr8 & DMA_MISSED_FRAME_OVE_CNTR) >> 17);
-			x->rx_overflow_cntr += ove_cntr;
-		}
-
-		if (csr8 & DMA_MISSED_FRAME_OVE_M) {
-			x->rx_missed_cntr += 0xffff;
-		} else {
-			unsigned int miss_f = (csr8 & DMA_MISSED_FRAME_M_CNTR);
-			x->rx_missed_cntr += miss_f;
-		}
-	}
-}
-
 const struct stmmac_dma_ops dwmac100_dma_ops = {
 	.reset = dwmac_dma_reset,
 	.init = dwmac100_dma_init,
@@ -112,7 +88,7 @@ const struct stmmac_dma_ops dwmac100_dma_ops = {
 	.init_tx_chan = dwmac100_dma_init_tx,
 	.dump_regs = dwmac100_dump_dma_regs,
 	.dma_tx_mode = dwmac100_dma_operation_mode_tx,
-	.dma_diagnostic_fr = dwmac100_dma_diagnostic_fr,
+	.dma_diagnostic_fr = dwmac_dma_diagnostic_fr,
 	.enable_dma_transmission = dwmac_enable_dma_transmission,
 	.enable_dma_irq = dwmac_enable_dma_irq,
 	.disable_dma_irq = dwmac_disable_dma_irq,

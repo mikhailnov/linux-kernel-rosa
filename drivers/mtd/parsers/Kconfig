@@ -215,3 +215,10 @@ config MTD_SERCOMM_PARTS
 	  partition map. This partition table contains real partition
 	  offsets, which may differ from device to device depending on the
 	  number and location of bad blocks on NAND.
+
+config MTD_BAIKAL_PARTS
+	bool "Baikal flash partition parser for ACPI"
+	depends on ARCH_BAIKAL && ACPI
+	help
+	  This provides flash partition parser which derives the partition map
+	  from the flash ACPI node.

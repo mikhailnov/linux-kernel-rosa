@@ -170,6 +170,13 @@ config SPI_AXI_SPI_ENGINE
 	  It is part of the SPI Engine framework that is used in some Analog Devices
 	  reference designs for FPGAs.
 
+config SPI_BAIKAL_ESPI
+	tristate "Baikal eSPI controller"
+	depends on ARCH_BAIKAL || COMPILE_TEST
+	help
+	  This enables support for the Baikal Electronics eSPI controller in
+	  master mode.
+
 config SPI_BCM2835
 	tristate "BCM2835 SPI controller"
 	depends on GPIOLIB

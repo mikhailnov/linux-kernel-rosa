@@ -16,6 +16,7 @@
 #define GMAC_CONFIG			0x00000000
 #define GMAC_EXT_CONFIG			0x00000004
 #define GMAC_PACKET_FILTER		0x00000008
+#define GMAC_WDT			0x0000000c
 #define GMAC_HASH_TAB(x)		(0x10 + (x) * 4)
 #define GMAC_VLAN_TAG			0x00000050
 #define GMAC_VLAN_TAG_DATA		0x00000054
@@ -83,10 +84,16 @@
 
 #define GMAC_MAX_PERFECT_ADDRESSES	128
 
+/* MAC Watchdog timeout for received frames */
+#define GMAC_WDT_PWE			BIT(8)
+#define GMAC_WDT_WTO			GENMASK(3, 0)
+#define GMAC_WDT_SHIFT			0
+
 /* MAC VLAN */
 #define GMAC_VLAN_EDVLP			BIT(26)
 #define GMAC_VLAN_VTHM			BIT(25)
 #define GMAC_VLAN_DOVLTC		BIT(20)
+#define GMAC_VLAN_ERSVLM		BIT(19)
 #define GMAC_VLAN_ESVL			BIT(18)
 #define GMAC_VLAN_ETV			BIT(16)
 #define GMAC_VLAN_VID			GENMASK(15, 0)
@@ -99,6 +106,7 @@
 /* MAC VLAN Tag */
 #define GMAC_VLAN_TAG_VID		GENMASK(15, 0)
 #define GMAC_VLAN_TAG_ETV		BIT(16)
+#define GMAC_VLAN_TAG_ERSVLM		BIT(19)
 
 /* MAC VLAN Tag Control */
 #define GMAC_VLAN_TAG_CTRL_OB		BIT(0)
@@ -118,6 +126,7 @@
 #define GMAC_VLAN_TAG_DATA_VID		GENMASK(15, 0)
 #define GMAC_VLAN_TAG_DATA_VEN		BIT(16)
 #define GMAC_VLAN_TAG_DATA_ETV		BIT(17)
+#define GMAC_VLAN_TAG_DATA_ERSVLM	BIT(19)
 
 /* MAC RX Queue Enable */
 #define GMAC_RX_QUEUE_CLEAR(queue)	~(GENMASK(1, 0) << ((queue) * 2))
@@ -214,8 +223,11 @@ enum power_event {
 #define GMAC_CONFIG_IPC			BIT(27)
 #define GMAC_CONFIG_IPG			GENMASK(26, 24)
 #define GMAC_CONFIG_IPG_SHIFT		24
+#define GMAC_CONFIG_GPSLCE		BIT(23)
 #define GMAC_CONFIG_2K			BIT(22)
+#define GMAC_CONFIG_CST			BIT(21)
 #define GMAC_CONFIG_ACS			BIT(20)
+#define GMAC_CONFIG_WD			BIT(19)
 #define GMAC_CONFIG_BE			BIT(18)
 #define GMAC_CONFIG_JD			BIT(17)
 #define GMAC_CONFIG_JE			BIT(16)
@@ -235,6 +247,8 @@ enum power_event {
 #define GMAC_CONFIG_HDSMS		GENMASK(22, 20)
 #define GMAC_CONFIG_HDSMS_SHIFT		20
 #define GMAC_CONFIG_HDSMS_256		(0x2 << GMAC_CONFIG_HDSMS_SHIFT)
+#define GMAC_CONFIG_GPSL		GENMASK(13, 0)
+#define GMAC_CONFIG_GPSL_SHIFT		0
 
 /* MAC HW features0 bitmap */
 #define GMAC_HW_FEAT_SAVLANINS		BIT(27)
@@ -360,6 +374,7 @@ static inline u32 mtl_chanx_base_addr(const struct dwmac4_addrs *addrs,
 #define MTL_CHAN_TX_DEBUG(addrs, x)	(mtl_chanx_base_addr(addrs, x) + 0x8)
 #define MTL_CHAN_INT_CTRL(addrs, x)	(mtl_chanx_base_addr(addrs, x) + 0x2c)
 #define MTL_CHAN_RX_OP_MODE(addrs, x)	(mtl_chanx_base_addr(addrs, x) + 0x30)
+#define MTL_CHAN_RX_MISSED_PKT_CTR(addrs, x) (mtl_chanx_base_addr(addrs, x) + 0x34)
 #define MTL_CHAN_RX_DEBUG(addrs, x)	(mtl_chanx_base_addr(addrs, x) + 0x38)
 
 #define MTL_OP_MODE_RSF			BIT(5)
@@ -393,6 +408,10 @@ static inline u32 mtl_chanx_base_addr(const struct dwmac4_addrs *addrs,
 #define MTL_OP_MODE_RFA_SHIFT		8
 
 #define MTL_OP_MODE_EHFC		BIT(7)
+
+#define MTL_OP_MODE_DT			BIT(6)
+#define MTL_OP_MODE_FEP			BIT(4)
+#define MTL_OP_MODE_FUP			BIT(3)
 
 #define MTL_OP_MODE_RTC_MASK		0x18
 #define MTL_OP_MODE_RTC_SHIFT		3
@@ -498,6 +517,14 @@ static inline u32 mtl_low_credx_base_addr(const struct dwmac4_addrs *addrs,
 
 #define MTL_HIGH_CRED_LC_MASK		GENMASK(28, 0)
 
+/* MTL Rx Queue Missed Packet and Overflow Counter */
+#define MTL_MISSED_PKT_MISCNTOVF	BIT(27)
+#define MTL_MISSED_PKT_MISPKTCNT	GENMASK(26, 16)
+#define MTL_MISSED_PKT_MISPKTCNT_SHIFT	16
+#define MTL_MISSED_PKT_OVFCNTOVF	BIT(11)
+#define MTL_MISSED_PKT_OVFPKTCNT	GENMASK(10, 0)
+#define MTL_MISSED_PKT_OVFPKTCNT_SHIFT	0
+
 /*  MTL debug */
 #define MTL_DEBUG_TXSTSFSTS		BIT(5)
 #define MTL_DEBUG_TXFSTS		BIT(4)
@@ -530,11 +557,12 @@ static inline u32 mtl_low_credx_base_addr(const struct dwmac4_addrs *addrs,
 /*  MTL interrupt */
 #define MTL_RX_OVERFLOW_INT_EN		BIT(24)
 #define MTL_RX_OVERFLOW_INT		BIT(16)
+#define MTL_TX_UNDERFLOW_INT_EN		BIT(8)
+#define MTL_TX_UNDERFLOW_INT		BIT(0)
+#define MTL_INT_DEFAULT_ENABLE		(MTL_RX_OVERFLOW_INT | MTL_TX_UNDERFLOW_INT)
 
 /* Default operating mode of the MAC */
-#define GMAC_CORE_INIT (GMAC_CONFIG_JD | GMAC_CONFIG_PS | \
-			GMAC_CONFIG_BE | GMAC_CONFIG_DCRS | \
-			GMAC_CONFIG_JE)
+#define GMAC_CORE_INIT (GMAC_CONFIG_PS | GMAC_CONFIG_BE | GMAC_CONFIG_DCRS)
 
 /* To dump the core regs excluding  the Address Registers */
 #define	GMAC_REG_NUM	132
@@ -572,16 +600,7 @@ static inline u32 mtl_low_credx_base_addr(const struct dwmac4_addrs *addrs,
 #define GMAC_PHYIF_CTRLSTATUS_TC		BIT(0)
 #define GMAC_PHYIF_CTRLSTATUS_LUD		BIT(1)
 #define GMAC_PHYIF_CTRLSTATUS_SMIDRXS		BIT(4)
-#define GMAC_PHYIF_CTRLSTATUS_LNKMOD		BIT(16)
-#define GMAC_PHYIF_CTRLSTATUS_SPEED		GENMASK(18, 17)
-#define GMAC_PHYIF_CTRLSTATUS_SPEED_SHIFT	17
-#define GMAC_PHYIF_CTRLSTATUS_LNKSTS		BIT(19)
-#define GMAC_PHYIF_CTRLSTATUS_JABTO		BIT(20)
-#define GMAC_PHYIF_CTRLSTATUS_FALSECARDET	BIT(21)
-/* LNKSPEED */
-#define GMAC_PHYIF_CTRLSTATUS_SPEED_125		0x2
-#define GMAC_PHYIF_CTRLSTATUS_SPEED_25		0x1
-#define GMAC_PHYIF_CTRLSTATUS_SPEED_2_5		0x0
+#define GMAC_PHYIF_CTRLSTATUS_RS_STAT		GENMASK(31, 16)
 
 extern const struct stmmac_dma_ops dwmac4_dma_ops;
 extern const struct stmmac_dma_ops dwmac410_dma_ops;

@@ -1228,6 +1228,12 @@ static int aic3x_mute(struct snd_soc_dai *dai, int mute, int direction)
 	return 0;
 }
 
+static int aic3x_set_pll(struct snd_soc_dai *dai, int pll_id, int source,
+			 unsigned int freq_in, unsigned int freq_out)
+{
+	return 0;
+}
+
 static int aic3x_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 				int clk_id, unsigned int freq, int dir)
 {
@@ -1479,6 +1485,7 @@ static const struct snd_soc_dai_ops aic3x_dai_ops = {
 	.set_sysclk	= aic3x_set_dai_sysclk,
 	.set_fmt	= aic3x_set_dai_fmt,
 	.set_tdm_slot	= aic3x_set_dai_tdm_slot,
+	.set_pll	= aic3x_set_pll,
 	.no_capture_mute = 1,
 };
 
@@ -1689,11 +1696,10 @@ static const struct snd_soc_component_driver soc_component_dev_aic3x = {
 
 static void aic3x_configure_ocmv(struct device *dev, struct aic3x_priv *aic3x)
 {
-	struct device_node *np = dev->of_node;
 	u32 value;
 	int dvdd, avdd;
 
-	if (np && !of_property_read_u32(np, "ai3x-ocmv", &value)) {
+	if (!device_property_read_u32(dev, "ai3x-ocmv", &value)) {
 		/* OCMV setting is forced by DT */
 		if (value <= 3) {
 			aic3x->ocmv = value;
@@ -1738,7 +1744,6 @@ int aic3x_probe(struct device *dev, struct regmap *regmap, kernel_ulong_t driver
 {
 	struct aic3x_priv *aic3x;
 	struct aic3x_setup_data *ai3x_setup;
-	struct device_node *np = dev->of_node;
 	int ret, i;
 	u32 value;
 
@@ -1755,17 +1760,17 @@ int aic3x_probe(struct device *dev, struct regmap *regmap, kernel_ulong_t driver
 	regcache_cache_only(aic3x->regmap, true);
 
 	dev_set_drvdata(dev, aic3x);
-	if (np) {
+	if (fwnode_device_is_available(dev->fwnode)) {
 		ai3x_setup = devm_kzalloc(dev, sizeof(*ai3x_setup), GFP_KERNEL);
 		if (!ai3x_setup)
 			return -ENOMEM;
 
-		if (of_property_read_u32_array(np, "ai3x-gpio-func",
+		if (device_property_read_u32_array(dev, "ai3x-gpio-func",
 					ai3x_setup->gpio_func, 2) >= 0) {
 			aic3x->setup = ai3x_setup;
 		}
 
-		if (!of_property_read_u32(np, "ai3x-micbias-vg", &value)) {
+		if (!device_property_read_u32(dev, "ai3x-micbias-vg", &value)) {
 			switch (value) {
 			case 1 :
 				aic3x->micbias_vg = AIC3X_MICBIAS_2_0V;
@@ -1809,6 +1814,10 @@ int aic3x_probe(struct device *dev, struct regmap *regmap, kernel_ulong_t driver
 			return ret;
 
 		aic3x->shared_reset = true;
+	}
+	else {
+		udelay(100);
+		gpiod_set_value(aic3x->gpio_reset, 1);
 	}
 
 	gpiod_set_consumer_name(aic3x->gpio_reset, "tlv320aic3x reset");

@@ -766,6 +766,10 @@ static void dw_pcie_link_set_max_link_width(struct dw_pcie *pci, u32 num_lanes)
 	case 8:
 		plc |= PORT_LINK_MODE_8_LANES;
 		break;
+	case 16:
+		plc |= PORT_LINK_MODE_16_LANES;
+		lwsc |= PORT_LOGIC_LINK_WIDTH_16_LANES;
+		break;
 	default:
 		dev_err(pci->dev, "num-lanes %u: invalid value\n", num_lanes);
 		return;
@@ -858,7 +862,7 @@ static u32 dw_pcie_readl_dma(struct dw_pcie *pci, u32 reg)
 	return val;
 }
 
-static int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
+int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	char name[6];
@@ -875,6 +879,7 @@ static int dw_pcie_edma_irq_vector(struct device *dev, unsigned int nr)
 
 	return platform_get_irq_byname_optional(pdev, name);
 }
+EXPORT_SYMBOL_GPL(dw_pcie_edma_irq_vector);
 
 static struct dw_edma_plat_ops dw_pcie_edma_ops = {
 	.irq_vector = dw_pcie_edma_irq_vector,

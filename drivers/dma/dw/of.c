@@ -46,58 +46,6 @@ static struct dma_chan *dw_dma_of_xlate(struct of_phandle_args *dma_spec,
 	return dma_request_channel(cap, dw_dma_filter, &slave);
 }
 
-struct dw_dma_platform_data *dw_dma_parse_dt(struct platform_device *pdev)
-{
-	struct device_node *np = pdev->dev.of_node;
-	struct dw_dma_platform_data *pdata;
-	u32 tmp, arr[DW_DMA_MAX_NR_MASTERS];
-	u32 nr_masters;
-	u32 nr_channels;
-
-	if (of_property_read_u32(np, "dma-masters", &nr_masters))
-		return NULL;
-	if (nr_masters < 1 || nr_masters > DW_DMA_MAX_NR_MASTERS)
-		return NULL;
-
-	if (of_property_read_u32(np, "dma-channels", &nr_channels))
-		return NULL;
-	if (nr_channels > DW_DMA_MAX_NR_CHANNELS)
-		return NULL;
-
-	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata)
-		return NULL;
-
-	pdata->nr_masters = nr_masters;
-	pdata->nr_channels = nr_channels;
-
-	of_property_read_u32(np, "chan_allocation_order", &pdata->chan_allocation_order);
-	of_property_read_u32(np, "chan_priority", &pdata->chan_priority);
-
-	of_property_read_u32(np, "block_size", &pdata->block_size);
-
-	/* Try deprecated property first */
-	if (!of_property_read_u32_array(np, "data_width", arr, nr_masters)) {
-		for (tmp = 0; tmp < nr_masters; tmp++)
-			pdata->data_width[tmp] = BIT(arr[tmp] & 0x07);
-	}
-
-	/* If "data_width" and "data-width" both provided use the latter one */
-	of_property_read_u32_array(np, "data-width", pdata->data_width, nr_masters);
-
-	memset32(pdata->multi_block, 1, nr_channels);
-	of_property_read_u32_array(np, "multi-block", pdata->multi_block, nr_channels);
-
-	memset32(pdata->max_burst, DW_DMA_MAX_BURST, nr_channels);
-	of_property_read_u32_array(np, "snps,max-burst-len", pdata->max_burst, nr_channels);
-
-	of_property_read_u32(np, "snps,dma-protection-control", &pdata->protctl);
-	if (pdata->protctl > CHAN_PROTCTL_MASK)
-		return NULL;
-
-	return pdata;
-}
-
 void dw_dma_of_controller_register(struct dw_dma *dw)
 {
 	struct device *dev = dw->dma.dev;

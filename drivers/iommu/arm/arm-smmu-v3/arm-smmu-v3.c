@@ -80,6 +80,7 @@ DEFINE_MUTEX(arm_smmu_asid_lock);
 static struct arm_smmu_option_prop arm_smmu_options[] = {
 	{ ARM_SMMU_OPT_SKIP_PREFETCH, "hisilicon,broken-prefetch-cmd" },
 	{ ARM_SMMU_OPT_PAGE0_REGS_ONLY, "cavium,cn9900-broken-page1-regspace"},
+	{ ARM_SMMU_OPT_BYPASS_GIC, "baikal,bs1000-bypass-gic"},
 	{ 0, NULL},
 };
 
@@ -4631,6 +4632,26 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 
 	/* Record our private device structure */
 	platform_set_drvdata(pdev, smmu);
+
+	if (smmu->options & ARM_SMMU_OPT_BYPASS_GIC) {
+		const u32 gic_sid = 0x8;
+		struct arm_smmu_ste *step;
+		u64 val;
+
+		ret = arm_smmu_init_sid_strtab(smmu, gic_sid);
+		if (!ret) {
+			val  = STRTAB_STE_0_V;
+			val |= FIELD_PREP(STRTAB_STE_0_CFG, STRTAB_STE_0_CFG_BYPASS);
+			step = arm_smmu_get_step_for_sid(smmu, gic_sid);
+			step->data[0] = cpu_to_le64(val);
+			step->data[1] = cpu_to_le64(FIELD_PREP(STRTAB_STE_1_SHCFG,
+						    STRTAB_STE_1_SHCFG_INCOMING));
+			step->data[2] = 0;
+		} else {
+			dev_err(smmu->dev, "GIC SID(0x%x) bypass failed\n",
+				gic_sid);
+		}
+	}
 
 	/* Check for RMRs and install bypass STEs if any */
 	arm_smmu_rmr_install_bypass_ste(smmu);
