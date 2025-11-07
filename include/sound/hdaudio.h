@@ -352,7 +352,7 @@ struct hdac_bus {
 	bool not_use_interrupts:1;	/* prohibiting the RIRB IRQ */
 	bool access_sdnctl_in_dword:1;	/* accessing the sdnctl register by dword */
 	bool use_pio_for_commands:1;	/* Use PIO instead of CORB for commands */
-	bool baikal_cad_quirk:1;	/* The codec addressing quirk in the BE-M1000 */
+	bool baikal_codec_addr_quirk:1;	/* The codec addressing quirk in the BE-M1000 */
 
 	int poll_count;
 

@@ -45,7 +45,7 @@ void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 {
 	WARN_ON_ONCE(!bus->rb.area);
 
-	bus->baikal_cad_quirk = device_is_compatible(bus->dev, "baikal,bm1000-hda") &&
+	bus->baikal_codec_addr_quirk = device_is_compatible(bus->dev, "baikal,bm1000-hda") &&
 			device_property_read_bool(bus->dev, "increment-codec-address");
 
 	spin_lock_irq(&bus->reg_lock);
@@ -234,7 +234,8 @@ static int snd_hdac_bus_send_cmd_corb(struct hdac_bus *bus, unsigned int val)
 
 	spin_lock_irq(&bus->reg_lock);
 
-	if (bus->baikal_cad_quirk)
+	// XXX Probably check for "increment-codec-address" is not needed because baikal_codec_addr_quirk=1 always
+	if (device_property_read_bool(bus->dev, "increment-codec-address") || bus->baikal_codec_addr_quirk)
 		val = val + 0x10000000;
 
 	bus->last_cmd[azx_command_addr(val)] = val;
