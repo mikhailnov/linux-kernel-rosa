@@ -231,7 +231,8 @@ static int snd_hdac_bus_send_cmd_corb(struct hdac_bus *bus, unsigned int val)
 
 	spin_lock_irq(&bus->reg_lock);
 
-	if (device_property_read_bool(bus->dev, "increment-codec-address"))
+	// XXX Probably check for "increment-codec-address" is not needed because baikal_codec_addr_quirk=1 always
+	if (device_property_read_bool(bus->dev, "increment-codec-address") || bus->baikal_codec_addr_quirk)
 		val = val + 0x10000000;
 
 	bus->last_cmd[azx_command_addr(val)] = val;

@@ -377,6 +377,7 @@ static int hda_baikal_create(struct snd_card *card,
 	INIT_WORK(&hda->irq_pending_work, azx_irq_pending_work);
 
 	chip->codec_probe_mask = 0x3; /* two codecs */
+	chip->jackpoll_interval = msecs_to_jiffies(100); /* 100ms */
 
 	chip->single_cmd = false;
 	chip->snoop = true;
@@ -392,6 +393,8 @@ static int hda_baikal_create(struct snd_card *card,
 
 	//chip->bus.needs_damn_long_delay = 1;
 	chip->bus.core.aligned_mmio = 1;
+	chip->bus.core.baikal_codec_addr_quirk = 1;
+	chip->bus.core.codec_mask = 1; // force non-zero mask
 
 	/* force polling mode, because RIRB interrupts don't working */
 	if (device_property_read_bool(hda->dev, "force-polling-mode"))
@@ -539,6 +542,10 @@ static void hda_baikal_probe_work(struct work_struct *work)
 	struct platform_device *pdev = to_platform_device(hda->dev);
 	int max_slots;
 	int err;
+#ifdef CONFIG_SND_HDA_PATCH_LOADER
+	const void *patch_data;
+	int patch_len;
+#endif
 
 	pm_runtime_get_sync(hda->dev);
 	err = hda_baikal_first_init(chip, pdev);
@@ -565,6 +572,17 @@ static void hda_baikal_probe_work(struct work_struct *work)
 
 	if (err < 0)
 		goto out_free;
+
+#ifdef CONFIG_SND_HDA_PATCH_LOADER
+	patch_data = of_get_property(bus->dev->of_node, "patch-data", &patch_len);
+	if (patch_data) {
+		err = snd_hda_load_patch(&chip->bus, patch_len, patch_data);
+		if (err < 0) {
+			dev_err(bus->dev, "Can't load patch - %d\n", err);
+			goto out_free;
+		}
+	}
+#endif
 
 	err = azx_codec_configure(chip);
 	if (err < 0)
@@ -607,6 +625,7 @@ static const struct hda_controller_ops hda_baikal_ops = {
 
 static const struct of_device_id hda_baikal_match[] = {
 	{ .compatible = "baikal,bm1000-hda" },
+	{ .compatible = "be,cw-hda" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, hda_baikal_match);
