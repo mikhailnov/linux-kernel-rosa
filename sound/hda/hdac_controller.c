@@ -3,6 +3,7 @@
  * HD-audio controller helpers
  */
 
+#include <linux/property.h>
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <linux/export.h>
@@ -43,6 +44,9 @@ static void azx_clear_corbrp(struct hdac_bus *bus)
 void snd_hdac_bus_init_cmd_io(struct hdac_bus *bus)
 {
 	WARN_ON_ONCE(!bus->rb.area);
+
+	bus->baikal_cad_quirk = device_is_compatible(bus->dev, "baikal,bm1000-hda") &&
+			device_property_read_bool(bus->dev, "increment-codec-address");
 
 	spin_lock_irq(&bus->reg_lock);
 	/* CORB set up */
@@ -229,6 +233,9 @@ static int snd_hdac_bus_send_cmd_corb(struct hdac_bus *bus, unsigned int val)
 	unsigned int wp, rp;
 
 	spin_lock_irq(&bus->reg_lock);
+
+	if (bus->baikal_cad_quirk)
+		val = val + 0x10000000;
 
 	bus->last_cmd[azx_command_addr(val)] = val;
 
