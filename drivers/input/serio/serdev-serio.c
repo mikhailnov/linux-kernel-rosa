@@ -104,6 +104,7 @@ static const struct of_device_id ss_of_match[] = {
 	{ .compatible = "serdev,serio" },
 	{},
 };
+MODULE_DEVICE_TABLE(of, ss_of_match);
 
 static struct serdev_device_driver serdev_serio_drv = {
 	.driver		= {
